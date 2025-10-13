@@ -1,7 +1,0 @@
-echo hello
-echo world
-ls
-!!
-!1
-!echo
-exit
