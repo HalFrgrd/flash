@@ -71,7 +71,6 @@ pub enum TokenKind {
     Complete,       // complete - tab completion builtin
     Select,         // select - interactive menu selection
     EOF,
-
 }
 
 /// A token produced by the lexer
@@ -1187,11 +1186,11 @@ impl Lexer {
                 // Look at the next character
                 let next_ch = self.peek_char();
                 if next_ch != '\0' {
-                        // Preserve the backslash and add the escaped character
-                        word.push(self.ch); // Add the backslash
-                        self.read_char(); // Move to the escaped character
-                        word.push(self.ch); // Add the escaped character
-                        self.read_char(); // Move past the escaped character
+                    // Preserve the backslash and add the escaped character
+                    word.push(self.ch); // Add the backslash
+                    self.read_char(); // Move to the escaped character
+                    word.push(self.ch); // Add the escaped character
+                    self.read_char(); // Move past the escaped character
                 } else {
                     // Backslash at end of input, treat as literal
                     word.push(self.ch);
@@ -1340,8 +1339,8 @@ impl Lexer {
         while self.ch != quote_char && self.ch != '\0' {
             // Handle escaped quotes
             if self.ch == '\\' && self.peek_char() == quote_char {
-                    content.push('\\'); // Preserve the backslash
-                    self.read_char(); // Move to the quote
+                content.push('\\'); // Preserve the backslash
+                self.read_char(); // Move to the quote
             }
 
             if self.ch == '\n' {
@@ -1580,6 +1579,36 @@ mod lexer_tests {
         }
 
         tokens
+    }
+
+    fn collect_tokens_include_whitespace(input: &str) -> Vec<Token> {
+        let mut lexer = Lexer::new(input);
+        let mut tokens = Vec::new();
+
+        loop {
+            let token = lexer.next_token();
+            let is_eof = matches!(token.kind, TokenKind::EOF);
+            tokens.push(token);
+            if is_eof {
+                break;
+            }
+        }
+
+        tokens
+    }
+
+    fn test_round_trip(input: &str) {
+        let tokens = collect_tokens_include_whitespace(input);
+        let reconstructed = tokens
+            .iter()
+            .map(|t| t.value.clone())
+            .collect::<Vec<String>>()
+            .join("");
+        assert_eq!(
+            input, reconstructed,
+            "Round-trip failed for input: {}",
+            input
+        );
     }
 
     fn test_tokens(input: &str, expected_tokens: Vec<TokenKind>) {
@@ -3381,8 +3410,8 @@ mod lexer_tests {
             TokenKind::Word("hello\\ world".to_string()),
         ];
         test_tokens(input, expected);
+        test_round_trip(input);
     }
-
 
     #[test]
     fn test_lexer_on_backslash_1() {
@@ -3394,6 +3423,7 @@ mod lexer_tests {
             TokenKind::Word("asd\\".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -3406,6 +3436,7 @@ mod lexer_tests {
             TokenKind::Word("asd\\ ".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -3417,6 +3448,7 @@ mod lexer_tests {
             TokenKind::Word("\\\"".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -3428,6 +3460,7 @@ mod lexer_tests {
             TokenKind::Word("asd\\ foo".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -3439,6 +3472,7 @@ mod lexer_tests {
             TokenKind::Word("foo\\".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -3450,6 +3484,7 @@ mod lexer_tests {
             TokenKind::Word("\\\"foo".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -3461,6 +3496,6 @@ mod lexer_tests {
             TokenKind::Word("\\\n-la".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
-
 }
