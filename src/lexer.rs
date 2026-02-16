@@ -1185,7 +1185,12 @@ impl Lexer {
             else if self.ch == '\\' {
                 // Look at the next character
                 let next_ch = self.peek_char();
-                if next_ch != '\0' {
+                if next_ch == '\n' {
+                    // Preserve backslash but let newline be tokenized separately
+                    word.push(self.ch);
+                    self.read_char();
+                    break;
+                } else if next_ch != '\0' {
                     // Preserve the backslash and add the escaped character
                     word.push(self.ch); // Add the backslash
                     self.read_char(); // Move to the escaped character
@@ -3493,7 +3498,9 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::Word("ls".to_string()),
             TokenKind::Whitespace(" ".to_string()),
-            TokenKind::Word("\\\n-la".to_string()),
+            TokenKind::Word("\\".to_string()),
+            TokenKind::Newline,
+            TokenKind::Word("-la".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
         test_round_trip(input);
