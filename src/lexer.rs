@@ -85,11 +85,12 @@ pub struct Token {
 pub struct Position {
     pub line: usize,
     pub column: usize,
+    pub byte: usize,
 }
 
 impl Position {
-    pub fn new(line: usize, column: usize) -> Self {
-        Self { line, column }
+    pub fn new(line: usize, column: usize, byte: usize) -> Self {
+        Self { line, column, byte }
     }
 }
 
@@ -169,6 +170,14 @@ impl Lexer {
         }
     }
 
+    fn current_byte_offset(&self) -> usize {
+        self.input
+            .iter()
+            .take(self.position)
+            .map(|ch| ch.len_utf8())
+            .sum()
+    }
+
     // check if the current position is followed by whitespace or a special character
     fn is_word_boundary(&self) -> bool {
         let peek = self.peek_char();
@@ -201,7 +210,7 @@ impl Lexer {
             self.skip_whitespace();
         }
 
-        let current_position = Position::new(self.line, self.column);
+        let current_position = Position::new(self.line, self.column, self.current_byte_offset());
 
         // Check for quote start/end
         if (self.ch == '"' || self.ch == '\'') && self.in_quotes.is_none() {
@@ -1027,7 +1036,7 @@ impl Lexer {
     }
 
     fn read_word(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut word = String::new();
 
         // Check for extglob pattern prefixes
@@ -1245,7 +1254,7 @@ impl Lexer {
     }
 
     fn read_comment(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut comment = String::from("#");
 
         self.read_char(); // Skip the '#'
@@ -1270,7 +1279,7 @@ impl Lexer {
     }
 
     fn read_quoted_content(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut content = String::new();
         let quote_char = self.in_quotes.unwrap();
 
@@ -1306,7 +1315,7 @@ impl Lexer {
     // Parse parameter expansion content after ${
     pub fn read_parameter_expansion(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
-        let start_position = Position::new(self.line, self.column);
+        let start_position = Position::new(self.line, self.column, self.current_byte_offset());
 
         // Skip whitespace
         self.skip_whitespace();
@@ -1323,7 +1332,7 @@ impl Lexer {
             self.skip_whitespace();
         } else if self.ch == '#' {
             // Length expansion ${#var} or prefix removal ${var#pattern}
-            let pos = Position::new(self.line, self.column);
+            let pos = Position::new(self.line, self.column, self.current_byte_offset());
             self.read_char();
 
             // Check if this is length expansion (# followed by variable name)
@@ -1353,7 +1362,7 @@ impl Lexer {
 
         // Check for parameter expansion operators
         if self.ch == ':' {
-            let op_start = Position::new(self.line, self.column);
+            let op_start = Position::new(self.line, self.column, self.current_byte_offset());
             let mut op = String::new();
             op.push(self.ch);
             self.read_char();
@@ -1376,7 +1385,7 @@ impl Lexer {
             });
         } else if self.ch == '#' {
             // Prefix removal
-            let op_start = Position::new(self.line, self.column);
+            let op_start = Position::new(self.line, self.column, self.current_byte_offset());
             let mut op = String::new();
             op.push(self.ch);
             self.read_char();
@@ -1394,7 +1403,7 @@ impl Lexer {
             });
         } else if self.ch == '%' {
             // Suffix removal
-            let op_start = Position::new(self.line, self.column);
+            let op_start = Position::new(self.line, self.column, self.current_byte_offset());
             let mut op = String::new();
             op.push(self.ch);
             self.read_char();

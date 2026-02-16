@@ -195,12 +195,12 @@ impl Parser {
             current_token: Token {
                 kind: TokenKind::EOF,
                 value: String::new(),
-                position: Position::new(0, 0),
+                position: Position::new(0, 0, 0),
             },
             peek_token: Token {
                 kind: TokenKind::EOF,
                 value: String::new(),
-                position: Position::new(0, 0),
+                position: Position::new(0, 0, 0),
             },
         };
 
