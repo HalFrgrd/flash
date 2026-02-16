@@ -3505,4 +3505,17 @@ mod lexer_tests {
         test_tokens_include_whitespace(input, expected);
         test_round_trip(input);
     }
+
+    #[test]
+    fn test_termination_of_lexing() {
+        let input = "echo \"";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Quote,
+            TokenKind::Word("".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+
+    }
 }
