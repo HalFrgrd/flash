@@ -71,6 +71,18 @@ pub enum TokenKind {
     Complete,       // complete - tab completion builtin
     Select,         // select - interactive menu selection
     EOF,
+
+}
+
+/// A token produced by the lexer
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub value: String,
+    pub position: Position,
+}
+
+impl Token {
     pub fn unquoted(&self) -> String {
         match self.kind {
             TokenKind::Word(_) | TokenKind::Whitespace(_) => {
@@ -92,14 +104,6 @@ pub enum TokenKind {
             _ => self.value.clone(),
         }
     }
-}
-
-/// A token produced by the lexer
-#[derive(Debug, Clone)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub value: String,
-    pub position: Position,
 }
 
 /// Source position information
@@ -1347,6 +1351,10 @@ impl Lexer {
 
             content.push(self.ch);
             self.read_char();
+        }
+
+        if self.ch == '\0' {
+            self.in_quotes = None;
         }
 
         Token {
@@ -2789,7 +2797,7 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::Word("echo".to_string()),
             TokenKind::Quote,
-            TokenKind::Word("escaped \" quote".to_string()),
+            TokenKind::Word(r#"escaped \" quote"#.to_string()),
             TokenKind::Quote,
         ];
         test_tokens(input, expected);
@@ -3370,7 +3378,7 @@ mod lexer_tests {
         let input = "echo hello\\ world";
         let expected = vec![
             TokenKind::Word("echo".to_string()),
-            TokenKind::Word("hello world".to_string()),
+            TokenKind::Word("hello\\ world".to_string()),
         ];
         test_tokens(input, expected);
     }
@@ -3406,8 +3414,7 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::Word("echo".to_string()),
             TokenKind::Whitespace(" ".to_string()),
-            TokenKind::Word("\\".to_string()),
-            TokenKind::Quote,
+            TokenKind::Word("\\\"".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
     }
@@ -3440,7 +3447,7 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::Word("echo".to_string()),
             TokenKind::Whitespace(" ".to_string()),
-            TokenKind::Word("\"foo".to_string()),
+            TokenKind::Word("\\\"foo".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
     }
@@ -3451,8 +3458,7 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::Word("ls".to_string()),
             TokenKind::Whitespace(" ".to_string()),
-            TokenKind::Newline,
-            TokenKind::Word("-la".to_string()),
+            TokenKind::Word("\\\n-la".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
     }

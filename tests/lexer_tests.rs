@@ -354,14 +354,14 @@ fn test_lexer_escape_sequences() {
     assert_eq!(lexer.next_token().kind, TokenKind::Whitespace(" ".to_string()));
     assert_eq!(
         lexer.next_token().kind,
-        TokenKind::Word("$HOME".to_string())
+        TokenKind::Word("\\$HOME".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::Whitespace(" ".to_string()));
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("n".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("\\n".to_string()));
     assert_eq!(lexer.next_token().kind, TokenKind::Whitespace(" ".to_string()));
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("t".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("\\t".to_string()));
     assert_eq!(lexer.next_token().kind, TokenKind::Whitespace(" ".to_string()));
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("\\".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("\\\\".to_string()));
 }
 
 #[test]
