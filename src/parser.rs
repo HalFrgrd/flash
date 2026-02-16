@@ -1364,7 +1364,14 @@ impl Parser {
         {
             match &self.current_token.kind {
                 TokenKind::Word(word) => {
-                    current_pattern.push_str(word);
+                    let mut parts = word.split('|').peekable();
+                    while let Some(part) = parts.next() {
+                        current_pattern.push_str(part);
+                        if parts.peek().is_some() {
+                            patterns.push(current_pattern);
+                            current_pattern = String::new();
+                        }
+                    }
                 }
                 TokenKind::Pipe => {
                     patterns.push(current_pattern);

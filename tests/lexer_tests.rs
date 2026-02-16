@@ -329,8 +329,13 @@ fn test_lexer_extended_glob() {
 
     assert_eq!(
         lexer.next_token().kind,
-        TokenKind::Word("?(pattern)".to_string())
+        TokenKind::ExtGlob('?')
     );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
 
     assert_eq!(
         lexer.next_token().kind,
@@ -338,8 +343,13 @@ fn test_lexer_extended_glob() {
     );
     assert_eq!(
         lexer.next_token().kind,
-        TokenKind::Word("*(pattern)".to_string())
+        TokenKind::ExtGlob('*')
     );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
 
     assert_eq!(
         lexer.next_token().kind,
@@ -347,8 +357,13 @@ fn test_lexer_extended_glob() {
     );
     assert_eq!(
         lexer.next_token().kind,
-        TokenKind::Word("+(pattern)".to_string())
+        TokenKind::ExtGlob('+')
     );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
 
     assert_eq!(
         lexer.next_token().kind,
@@ -356,8 +371,13 @@ fn test_lexer_extended_glob() {
     );
     assert_eq!(
         lexer.next_token().kind,
-        TokenKind::Word("@(pattern)".to_string())
+        TokenKind::ExtGlob('@')
     );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
 
     assert_eq!(
         lexer.next_token().kind,
@@ -365,8 +385,13 @@ fn test_lexer_extended_glob() {
     );
     assert_eq!(
         lexer.next_token().kind,
-        TokenKind::Word("!(pattern)".to_string())
+        TokenKind::ExtGlob('!')
     );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
 }
 
 #[test]
