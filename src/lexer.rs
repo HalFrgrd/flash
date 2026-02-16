@@ -241,7 +241,8 @@ impl Lexer {
                 return self.read_whitespace();
             }
 
-            let current_position = Position::new(self.line, self.column, self.current_byte_offset());
+            let current_position =
+                Position::new(self.line, self.column, self.current_byte_offset());
             let token = if self.ch == ')' {
                 self.in_extglob = false;
                 Token {
@@ -476,12 +477,12 @@ impl Lexer {
                         // Here document with dash <<-
                         self.read_char(); // Consume '-'
                         self.read_char(); // Move to next char
-                        
+
                         // Skip whitespace before delimiter
                         while self.ch.is_whitespace() && self.ch != '\n' {
                             self.read_char();
                         }
-                        
+
                         // Read delimiter
                         let delimiter = self.read_heredoc_delimiter();
                         Token {
@@ -492,12 +493,12 @@ impl Lexer {
                     } else {
                         // Regular here document <<
                         self.read_char(); // Move to next char
-                        
+
                         // Skip whitespace before delimiter
                         while self.ch.is_whitespace() && self.ch != '\n' {
                             self.read_char();
                         }
-                        
+
                         // Read delimiter
                         let delimiter = self.read_heredoc_delimiter();
                         Token {
@@ -1557,20 +1558,20 @@ impl Lexer {
 
     fn read_heredoc_delimiter(&mut self) -> String {
         let mut delimiter = String::new();
-        
+
         // Read until whitespace or newline
         while !self.ch.is_whitespace() && self.ch != '\0' {
             delimiter.push(self.ch);
             self.read_char();
         }
-        
+
         // Step back one character
         if self.position > 0 {
             self.position -= 1;
             self.read_position -= 1;
             self.column -= 1;
         }
-        
+
         delimiter
     }
 
@@ -2289,7 +2290,6 @@ mod lexer_tests {
         ];
         test_tokens(input, expected);
     }
-
 
     #[test]
     fn test_mixed_keywords_and_words() {

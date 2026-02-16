@@ -148,7 +148,7 @@ fn test_debug_mode() {
 #[test]
 fn test_here_document_lexing() {
     // Test that here-document tokens are lexed correctly
-    let input = "cat << EOF\nhello\nEOF";
+    let input = "cat << HDDELIM\nhello\nHDDELIM";
     let mut lexer = Lexer::new(input);
 
     let token1 = lexer.next_token();
@@ -160,11 +160,19 @@ fn test_here_document_lexing() {
     let token2 = lexer.next_token();
     match &token2.kind {
         TokenKind::HereDoc(delim) => {
-            assert_eq!(delim, "EOF");
-            assert_eq!(token2.value, "<<EOF");
+            assert_eq!(delim, "HDDELIM");
+            assert_eq!(token2.value, "<<HDDELIM");
         }
         _ => panic!("Expected HereDoc token, got {:?}", token2.kind),
     }
+    let _ = lexer.next_token(); // Skip the newline after the delimiter
+    let token3 = lexer.next_token();
+    println!("Here-document content: {:?}", token3);
+
+    let _ = lexer.next_token();
+    let token4 = lexer.next_token();
+    println!("Here-document closing token: {:?}", token4);
+    assert_eq!(token4.value, "HDDELIM");
 }
 
 #[test]

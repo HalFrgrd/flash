@@ -327,10 +327,7 @@ fn test_lexer_assignment() {
 fn test_lexer_extended_glob() {
     let mut lexer = Lexer::new("?(pattern) *(pattern) +(pattern) @(pattern) !(pattern)");
 
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::ExtGlob('?')
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('?'));
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Word("pattern".to_string())
@@ -341,10 +338,7 @@ fn test_lexer_extended_glob() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::ExtGlob('*')
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('*'));
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Word("pattern".to_string())
@@ -355,10 +349,7 @@ fn test_lexer_extended_glob() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::ExtGlob('+')
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('+'));
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Word("pattern".to_string())
@@ -369,10 +360,7 @@ fn test_lexer_extended_glob() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::ExtGlob('@')
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('@'));
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Word("pattern".to_string())
@@ -383,10 +371,7 @@ fn test_lexer_extended_glob() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::ExtGlob('!')
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('!'));
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Word("pattern".to_string())
