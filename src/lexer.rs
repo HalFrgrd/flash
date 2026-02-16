@@ -71,6 +71,27 @@ pub enum TokenKind {
     Complete,       // complete - tab completion builtin
     Select,         // select - interactive menu selection
     EOF,
+    pub fn unquoted(&self) -> String {
+        match self.kind {
+            TokenKind::Word(_) | TokenKind::Whitespace(_) => {
+                let mut output = String::new();
+                let mut chars = self.value.chars().peekable();
+                while let Some(ch) = chars.next() {
+                    if ch == '\\' {
+                        if let Some(next) = chars.next() {
+                            output.push(next);
+                        } else {
+                            output.push(ch);
+                        }
+                    } else {
+                        output.push(ch);
+                    }
+                }
+                output
+            }
+            _ => self.value.clone(),
+        }
+    }
 }
 
 /// A token produced by the lexer
@@ -1077,6 +1098,13 @@ impl Lexer {
                     self.read_char();
                 }
 
+                // We moved ahead one character, so step back
+                if self.position > 0 {
+                    self.position -= 1;
+                    self.read_position -= 1;
+                    self.column -= 1;
+                }
+
                 return Token {
                     kind: TokenKind::Word(word.clone()),
                     value: word,
@@ -1155,10 +1183,11 @@ impl Lexer {
                 // Look at the next character
                 let next_ch = self.peek_char();
                 if next_ch != '\0' {
-                    // Skip the backslash and add the escaped character
-                    self.read_char(); // Skip the backslash
-                    word.push(self.ch); // Add the escaped character
-                    self.read_char(); // Move past the escaped character
+                        // Preserve the backslash and add the escaped character
+                        word.push(self.ch); // Add the backslash
+                        self.read_char(); // Move to the escaped character
+                        word.push(self.ch); // Add the escaped character
+                        self.read_char(); // Move past the escaped character
                 } else {
                     // Backslash at end of input, treat as literal
                     word.push(self.ch);
@@ -1307,7 +1336,8 @@ impl Lexer {
         while self.ch != quote_char && self.ch != '\0' {
             // Handle escaped quotes
             if self.ch == '\\' && self.peek_char() == quote_char {
-                self.read_char(); // Skip the backslash
+                    content.push('\\'); // Preserve the backslash
+                    self.read_char(); // Move to the quote
             }
 
             if self.ch == '\n' {
@@ -3344,4 +3374,87 @@ mod lexer_tests {
         ];
         test_tokens(input, expected);
     }
+
+
+    #[test]
+    fn test_lexer_on_backslash_1() {
+        let input = r#"echo "asd\"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Quote,
+            TokenKind::Word("asd\\".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_2() {
+        let input = r#"echo "asd\ "#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Quote,
+            TokenKind::Word("asd\\ ".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_3() {
+        let input = r#"echo \""#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("\\".to_string()),
+            TokenKind::Quote,
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_4() {
+        let input = r#"echo asd\ foo"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("asd\\ foo".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_5() {
+        let input = r#"echo foo\"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("foo\\".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_6() {
+        let input = r#"echo \"foo"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("\"foo".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_line_continuation() {
+        let input = "ls \\\n-la";
+        let expected = vec![
+            TokenKind::Word("ls".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Newline,
+            TokenKind::Word("-la".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
 }
