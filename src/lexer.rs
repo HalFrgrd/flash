@@ -37,8 +37,8 @@ pub enum TokenKind {
     ParamExpansionOp(String), // :-, :=, :?, :+, #, ##, %, %%
     ProcessSubstIn,           // <(
     ProcessSubstOut,          // >(
-    HereDoc,                  // << followed by delimiter
-    HereDocDash,              // <<- followed by delimiter
+    HereDoc(String),          // << followed by delimiter
+    HereDocDash(String),      // <<- followed by delimiter
     HereDocContent(String),   // Content of here-document
     HereString,               // <<<
     ExtGlob(char),            // For ?(, *(, +(, @(, !(
@@ -475,16 +475,34 @@ impl Lexer {
                     } else if self.peek_char() == '-' {
                         // Here document with dash <<-
                         self.read_char(); // Consume '-'
+                        self.read_char(); // Move to next char
+                        
+                        // Skip whitespace before delimiter
+                        while self.ch.is_whitespace() && self.ch != '\n' {
+                            self.read_char();
+                        }
+                        
+                        // Read delimiter
+                        let delimiter = self.read_heredoc_delimiter();
                         Token {
-                            kind: TokenKind::HereDocDash,
-                            value: "<<-".to_string(),
+                            kind: TokenKind::HereDocDash(delimiter.clone()),
+                            value: format!("<<-{}", delimiter),
                             position: current_position,
                         }
                     } else {
                         // Regular here document <<
+                        self.read_char(); // Move to next char
+                        
+                        // Skip whitespace before delimiter
+                        while self.ch.is_whitespace() && self.ch != '\n' {
+                            self.read_char();
+                        }
+                        
+                        // Read delimiter
+                        let delimiter = self.read_heredoc_delimiter();
                         Token {
-                            kind: TokenKind::HereDoc,
-                            value: "<<".to_string(),
+                            kind: TokenKind::HereDoc(delimiter.clone()),
+                            value: format!("<<{}", delimiter),
                             position: current_position,
                         }
                     }
@@ -1535,6 +1553,25 @@ impl Lexer {
         }
 
         tokens
+    }
+
+    fn read_heredoc_delimiter(&mut self) -> String {
+        let mut delimiter = String::new();
+        
+        // Read until whitespace or newline
+        while !self.ch.is_whitespace() && self.ch != '\0' {
+            delimiter.push(self.ch);
+            self.read_char();
+        }
+        
+        // Step back one character
+        if self.position > 0 {
+            self.position -= 1;
+            self.read_position -= 1;
+            self.column -= 1;
+        }
+        
+        delimiter
     }
 
     // Parse here-document content

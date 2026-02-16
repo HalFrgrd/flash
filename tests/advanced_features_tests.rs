@@ -6,7 +6,7 @@
  */
 
 use flash::interpreter::{DefaultEvaluator, Evaluator, Interpreter};
-use flash::lexer::Lexer;
+use flash::lexer::{Lexer, TokenKind};
 use flash::parser::Parser;
 
 #[test]
@@ -154,11 +154,17 @@ fn test_here_document_lexing() {
     let token1 = lexer.next_token();
     assert_eq!(token1.value, "cat");
 
-    let token2 = lexer.next_token();
-    assert_eq!(token2.value, "<<");
+    // Skip whitespace
+    let _ = lexer.next_token();
 
-    let token3 = lexer.next_token();
-    assert_eq!(token3.value, "EOF");
+    let token2 = lexer.next_token();
+    match &token2.kind {
+        TokenKind::HereDoc(delim) => {
+            assert_eq!(delim, "EOF");
+            assert_eq!(token2.value, "<<EOF");
+        }
+        _ => panic!("Expected HereDoc token, got {:?}", token2.kind),
+    }
 }
 
 #[test]
@@ -170,8 +176,14 @@ fn test_here_string_lexing() {
     let token1 = lexer.next_token();
     assert_eq!(token1.value, "cat");
 
+    // Skip whitespace
+    let _ = lexer.next_token();
+
     let token2 = lexer.next_token();
     assert_eq!(token2.value, "<<<");
+
+    // Skip whitespace
+    let _ = lexer.next_token();
 
     let token3 = lexer.next_token();
     assert_eq!(token3.value, "hello");
@@ -205,11 +217,17 @@ fn test_process_substitution_lexing() {
     let token2 = lexer.next_token();
     assert_eq!(token2.value, "echo");
 
+    // Skip whitespace
+    let _ = lexer.next_token();
+
     let token3 = lexer.next_token();
     assert_eq!(token3.value, "hello");
 
     let token4 = lexer.next_token();
     assert_eq!(token4.value, ")");
+
+    // Skip whitespace
+    let _ = lexer.next_token();
 
     let token5 = lexer.next_token();
     assert_eq!(token5.value, ">(");
