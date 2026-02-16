@@ -212,6 +212,10 @@ impl Parser {
     pub fn next_token(&mut self) {
         self.current_token = self.peek_token.clone();
         self.peek_token = self.lexer.next_token();
+
+        while matches!(self.peek_token.kind, TokenKind::Whitespace(_)) {
+            self.peek_token = self.lexer.next_token();
+        }
     }
 
     // Function definition: name() { ... }

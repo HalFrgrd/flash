@@ -9,6 +9,7 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Word(String),
+    Whitespace(String),
     Assignment,               // =
     Pipe,                     // |
     Semicolon,                // ;
@@ -193,7 +194,10 @@ impl Lexer {
         let saved_column = self.column;
 
         // Get the next token
-        let token = self.next_token();
+        let mut token = self.next_token();
+        while matches!(token.kind, TokenKind::Whitespace(_)) {
+            token = self.next_token();
+        }
 
         // Restore the saved state
         self.position = saved_position;
@@ -206,8 +210,8 @@ impl Lexer {
     }
 
     pub fn next_token(&mut self) -> Token {
-        if self.in_quotes.is_none() {
-            self.skip_whitespace();
+        if self.in_quotes.is_none() && self.ch.is_whitespace() && self.ch != '\n' {
+            return self.read_whitespace();
         }
 
         let current_position = Position::new(self.line, self.column, self.current_byte_offset());
@@ -1207,6 +1211,22 @@ impl Lexer {
         }
     }
 
+    fn read_whitespace(&mut self) -> Token {
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
+        let mut whitespace = String::new();
+
+        while self.ch.is_whitespace() && self.ch != '\n' {
+            whitespace.push(self.ch);
+            self.read_char();
+        }
+
+        Token {
+            kind: TokenKind::Whitespace(whitespace.clone()),
+            value: whitespace,
+            position,
+        }
+    }
+
     // Check if the current position starts a brace expansion pattern like {1..10} or {a..z}
     fn is_brace_expansion(&self) -> bool {
         if self.ch != '{' {
@@ -1510,7 +1530,10 @@ mod lexer_tests {
         let mut tokens = Vec::new();
 
         loop {
-            let token = lexer.next_token();
+            let mut token = lexer.next_token();
+            while matches!(token.kind, TokenKind::Whitespace(_)) {
+                token = lexer.next_token();
+            }
             let is_eof = matches!(token.kind, TokenKind::EOF);
             tokens.push(token);
             if is_eof {
@@ -1522,6 +1545,33 @@ mod lexer_tests {
     }
 
     fn test_tokens(input: &str, expected_tokens: Vec<TokenKind>) {
+        let mut lexer = Lexer::new(input);
+        for expected in expected_tokens {
+            let mut token = lexer.next_token();
+            while matches!(token.kind, TokenKind::Whitespace(_)) {
+                token = lexer.next_token();
+            }
+            assert_eq!(
+                token.kind, expected,
+                "Expected {:?} but got {:?} for input: {}",
+                expected, token.kind, input
+            );
+        }
+
+        // Ensure we've consumed all tokens
+        let mut final_token = lexer.next_token();
+        while matches!(final_token.kind, TokenKind::Whitespace(_)) {
+            final_token = lexer.next_token();
+        }
+        assert_eq!(
+            final_token.kind,
+            TokenKind::EOF,
+            "Expected EOF but got {:?}",
+            final_token.kind
+        );
+    }
+
+    fn test_tokens_include_whitespace(input: &str, expected_tokens: Vec<TokenKind>) {
         let mut lexer = Lexer::new(input);
         for expected in expected_tokens {
             let token = lexer.next_token();
@@ -1542,6 +1592,14 @@ mod lexer_tests {
         );
     }
 
+    fn next_non_whitespace(lexer: &mut Lexer) -> Token {
+        let mut token = lexer.next_token();
+        while matches!(token.kind, TokenKind::Whitespace(_)) {
+            token = lexer.next_token();
+        }
+        token
+    }
+
     #[test]
     fn test_peek_without_advancing() {
         let input = "if then";
@@ -1553,12 +1611,12 @@ mod lexer_tests {
         assert_eq!(peeked_token.value, "if");
 
         // Current token should still be 'if' after peeking
-        let current_token = lexer.next_token();
+        let current_token = next_non_whitespace(&mut lexer);
         assert_eq!(current_token.kind, TokenKind::If);
         assert_eq!(current_token.value, "if");
 
         // Next token should be 'then'
-        let next_token = lexer.next_token();
+        let next_token = next_non_whitespace(&mut lexer);
         assert_eq!(next_token.kind, TokenKind::Then);
         assert_eq!(next_token.value, "then");
     }
@@ -1577,7 +1635,7 @@ mod lexer_tests {
         assert_eq!(second_peek.kind, TokenKind::For);
 
         // Now consume the 'for' token
-        let token = lexer.next_token();
+        let token = next_non_whitespace(&mut lexer);
         assert_eq!(token.kind, TokenKind::For);
 
         // Peek should now be 'i'
@@ -1617,12 +1675,12 @@ mod lexer_tests {
         assert_eq!(peek_token.kind, TokenKind::Word("[".to_string()));
 
         // Lexer position should still be at the same point
-        let bracket_token = lexer.next_token();
+        let bracket_token = next_non_whitespace(&mut lexer);
         assert_eq!(bracket_token.kind, TokenKind::Word("[".to_string()));
 
         // Let's consume a few more tokens
-        lexer.next_token(); // $
-        lexer.next_token(); // a
+        next_non_whitespace(&mut lexer); // $
+        next_non_whitespace(&mut lexer); // a
 
         // Peek should now be '='
         let eq_peek = lexer.peek_next_token();
@@ -1630,7 +1688,7 @@ mod lexer_tests {
         assert_eq!(eq_peek.value, "=");
 
         // And verify we're still at the same position
-        let eq_token = lexer.next_token();
+        let eq_token = next_non_whitespace(&mut lexer);
         assert_eq!(eq_token.kind, TokenKind::Assignment);
     }
 
@@ -1640,8 +1698,8 @@ mod lexer_tests {
         let mut lexer = Lexer::new(input);
 
         // Consume 'ls' and '-l'
-        lexer.next_token(); // ls
-        lexer.next_token(); // -l
+        next_non_whitespace(&mut lexer); // ls
+        next_non_whitespace(&mut lexer); // -l
 
         // Peek should now be '||'
         let or_peek = lexer.peek_next_token();
@@ -1649,7 +1707,7 @@ mod lexer_tests {
         assert_eq!(or_peek.value, "||");
 
         // Verify we still get '||' when advancing
-        let or_token = lexer.next_token();
+        let or_token = next_non_whitespace(&mut lexer);
         assert_eq!(or_token.kind, TokenKind::Or);
 
         // Peek should now be 'echo'
@@ -1663,15 +1721,15 @@ mod lexer_tests {
         let mut lexer = Lexer::new(input);
 
         // Consume 'echo' and 'hello'
-        lexer.next_token(); // echo
-        lexer.next_token(); // hello
+        next_non_whitespace(&mut lexer); // echo
+        next_non_whitespace(&mut lexer); // hello
 
         // Peek should be newline
         let nl_peek = lexer.peek_next_token();
         assert_eq!(nl_peek.kind, TokenKind::Newline);
 
         // Advance past newline
-        let nl_token = lexer.next_token();
+        let nl_token = next_non_whitespace(&mut lexer);
         assert_eq!(nl_token.kind, TokenKind::Newline);
 
         // Peek should now be the second 'echo'
@@ -1689,7 +1747,7 @@ mod lexer_tests {
         assert_eq!(comment_peek.kind, TokenKind::Comment);
 
         // Advance past comment
-        let comment_token = lexer.next_token();
+        let comment_token = next_non_whitespace(&mut lexer);
         assert_eq!(comment_token.kind, TokenKind::Comment);
 
         // Peek should now be newline
@@ -2875,6 +2933,33 @@ mod lexer_tests {
     }
 
     #[test]
+    fn test_whitespace_tokens_leading() {
+        let input = "  echo";
+        let expected = vec![
+            TokenKind::Whitespace("  ".to_string()),
+            TokenKind::Word("echo".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_whitespace_tokens_trailing() {
+        let input = "echo  ";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace("  ".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_whitespace_tokens_only() {
+        let input = " \t  ";
+        let expected = vec![TokenKind::Whitespace(" \t  ".to_string())];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
     fn test_empty_input() {
         let input = "";
         let expected = vec![];
@@ -2972,10 +3057,10 @@ mod lexer_tests {
         let echo_token = lexer.next_token();
         assert_eq!(echo_token.kind, TokenKind::Word("echo".to_string()));
 
-        let quote_token = lexer.next_token();
+        let quote_token = next_non_whitespace(&mut lexer);
         assert_eq!(quote_token.kind, TokenKind::Quote);
 
-        let content_token = lexer.next_token();
+        let content_token = next_non_whitespace(&mut lexer);
         assert_eq!(
             content_token.kind,
             TokenKind::Word("unclosed quote".to_string())
@@ -2998,7 +3083,10 @@ mod lexer_tests {
 
         let mut token_count = 0;
         loop {
-            let token = lexer.next_token();
+            let mut token = lexer.next_token();
+            while matches!(token.kind, TokenKind::Whitespace(_)) {
+                token = lexer.next_token();
+            }
             if token.kind == TokenKind::EOF {
                 break;
             }
@@ -3243,6 +3331,16 @@ mod lexer_tests {
             TokenKind::Word("echo".to_string()),
             TokenKind::Word("test".to_string()),
             TokenKind::RParen,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_backslashed_spaces() {
+        let input = "echo hello\\ world";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Word("hello world".to_string()),
         ];
         test_tokens(input, expected);
     }
