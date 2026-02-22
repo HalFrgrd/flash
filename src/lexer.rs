@@ -5,6 +5,8 @@
  * under GNU General Public License v3.0.
  */
 
+use std::ops::Range;
+
 /// Token types that can be produced by the lexer
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -73,6 +75,16 @@ pub enum TokenKind {
     EOF,
 }
 
+impl TokenKind {
+    pub fn is_word(&self) -> bool {
+        matches!(self, TokenKind::Word(_))
+    }
+
+    pub fn is_whitespace(&self) -> bool {
+        matches!(self, TokenKind::Whitespace(_))
+    }
+}
+
 /// A token produced by the lexer
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -102,6 +114,12 @@ impl Token {
             }
             _ => self.value.clone(),
         }
+    }
+
+    pub fn byte_range(&self) -> Range<usize> {
+        let start = self.position.byte;
+        let end = start + self.value.len();
+        start..end
     }
 }
 
