@@ -433,3 +433,244 @@ fn test_deeply_nested_tokens() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Double-quote expression lexing tests
+// ---------------------------------------------------------------------------
+
+/// `"$FOO"` should emit Dollar + the variable name, not a single Word.
+#[test]
+fn test_dquote_variable_simple() {
+    let mut lexer = Lexer::new(r#""$FOO""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("FOO".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `echo "hello $FOO"` – literal prefix before the expansion.
+#[test]
+fn test_dquote_variable_with_prefix() {
+    let mut lexer = Lexer::new(r#"echo "hello $FOO""#);
+
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("echo".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("hello ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("FOO".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `"$FOO bar"` – literal suffix after the expansion.
+#[test]
+fn test_dquote_variable_with_suffix() {
+    let mut lexer = Lexer::new(r#""$FOO bar""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("FOO".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(" bar".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// Multiple variable references inside the same double-quoted string.
+#[test]
+fn test_dquote_multiple_variables() {
+    let mut lexer = Lexer::new(r#""$FOO $BAR""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("FOO".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("BAR".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// Special variable `$@` inside double quotes.
+#[test]
+fn test_dquote_special_variable_at() {
+    let mut lexer = Lexer::new(r#""$@""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("@".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${VAR}` parameter expansion inside double quotes.
+#[test]
+fn test_dquote_param_expansion() {
+    let mut lexer = Lexer::new(r#""${VAR}""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("VAR".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `$(...)` command substitution inside double quotes.
+#[test]
+fn test_dquote_cmd_substitution() {
+    let mut lexer = Lexer::new(r#""$(echo hi)""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("echo".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("hi".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// Arithmetic expansion `$((…))` inside double quotes.
+#[test]
+fn test_dquote_arith_substitution() {
+    let mut lexer = Lexer::new(r#""$((1 + 2))""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::ArithSubst);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("1".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("+".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("2".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// Backtick command substitution inside double quotes.
+#[test]
+fn test_dquote_backtick_substitution() {
+    let mut lexer = Lexer::new("\"` date `\"");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::Backtick);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("date".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Backtick);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `\$` inside double quotes should produce a literal `$` in the Word content,
+/// not trigger variable expansion.
+#[test]
+fn test_dquote_escaped_dollar() {
+    let mut lexer = Lexer::new(r#""\$FOO""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("$FOO".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `$` not followed by a name/expansion character stays literal inside double quotes.
+#[test]
+fn test_dquote_literal_dollar_no_expansion() {
+    let mut lexer = Lexer::new(r#""$ foo""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    // The $ is followed by a space, so it is treated as literal content.
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("$ foo".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// Literal text with no expansions still works as a single Word.
+#[test]
+fn test_dquote_no_expansion() {
+    let mut lexer = Lexer::new(r#""hello world""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("hello world".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${VAR}` followed by literal text inside double quotes.
+#[test]
+fn test_dquote_param_expansion_with_suffix() {
+    let mut lexer = Lexer::new(r#""${VAR} suffix""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("VAR".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(" suffix".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
