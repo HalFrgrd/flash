@@ -176,6 +176,9 @@ pub struct Lexer {
     column: usize,
     in_quotes: Option<char>,
     quote_after_cmdsubst: Option<char>,
+    quote_after_cmdsubst_depth: usize,
+    quote_after_param_expansion: Option<char>,
+    quote_after_backtick: Option<char>,
     in_extglob: bool,
 }
 
@@ -190,6 +193,9 @@ impl Lexer {
             column: 0,
             in_quotes: None,
             quote_after_cmdsubst: None,
+            quote_after_cmdsubst_depth: 0,
+            quote_after_param_expansion: None,
+            quote_after_backtick: None,
             in_extglob: false,
         };
         lexer.read_char();
@@ -327,17 +333,65 @@ impl Lexer {
             self.read_char();
             return token;
         } else if self.in_quotes.is_some() {
-            // We're inside quotes, but check for command substitution first
-            if self.ch == '$' && self.peek_char() == '(' {
-                // Handle command substitution even inside quotes
-                // Save the quote state and temporarily exit quote mode
-                self.quote_after_cmdsubst = self.in_quotes;
+            let in_double_quotes = self.in_quotes == Some('"');
+            // Inside double quotes, $ and ` retain their special meaning
+            if in_double_quotes && self.ch == '$' {
+                if self.peek_char() == '(' {
+                    if self.position + 2 < self.input.len() && self.input[self.position + 2] == '('
+                    {
+                        // Arithmetic substitution $((
+                        self.quote_after_cmdsubst = self.in_quotes;
+                        self.quote_after_cmdsubst_depth = 2;
+                        self.in_quotes = None;
+                        self.read_char(); // Consume first '('
+                        self.read_char(); // Consume second '('
+                        self.read_char(); // Advance to first char inside $((
+                        return Token {
+                            kind: TokenKind::ArithSubst,
+                            value: "$((".to_string(),
+                            position: current_position,
+                        };
+                    } else {
+                        // Command substitution $(
+                        self.quote_after_cmdsubst = self.in_quotes;
+                        self.quote_after_cmdsubst_depth = 1;
+                        self.in_quotes = None;
+                        self.read_char(); // Consume '('
+                        self.read_char(); // Advance to first char inside $(
+                        return Token {
+                            kind: TokenKind::CmdSubst,
+                            value: "$(".to_string(),
+                            position: current_position,
+                        };
+                    }
+                } else if self.peek_char() == '{' {
+                    // Parameter expansion ${
+                    self.quote_after_param_expansion = self.in_quotes;
+                    self.in_quotes = None;
+                    self.read_char(); // Consume '{'
+                    self.read_char(); // Advance to first char inside ${...}
+                    return Token {
+                        kind: TokenKind::ParamExpansion,
+                        value: "${".to_string(),
+                        position: current_position,
+                    };
+                } else {
+                    // Simple variable expansion $VAR
+                    self.read_char(); // Advance past '$' to the variable name
+                    return Token {
+                        kind: TokenKind::Dollar,
+                        value: "$".to_string(),
+                        position: current_position,
+                    };
+                }
+            } else if in_double_quotes && self.ch == '`' {
+                // Backtick command substitution inside double quotes
+                self.quote_after_backtick = self.in_quotes;
                 self.in_quotes = None;
-                self.read_char(); // Consume the '('
-                self.read_char(); // Advance to the next character (like the end of method does)
+                self.read_char(); // Advance past '`'
                 return Token {
-                    kind: TokenKind::CmdSubst,
-                    value: "$(".to_string(),
+                    kind: TokenKind::Backtick,
+                    value: "`".to_string(),
                     position: current_position,
                 };
             } else {
@@ -443,10 +497,17 @@ impl Lexer {
                 }
             }
             ')' => {
-                // Check if we need to restore quote state after command substitution
-                if let Some(quote_char) = self.quote_after_cmdsubst {
-                    self.in_quotes = Some(quote_char);
-                    self.quote_after_cmdsubst = None;
+                // Check if we need to restore quote state after command substitution.
+                // Use depth counter so $((expr)) (which needs two ')') works correctly.
+                if self.quote_after_cmdsubst.is_some() {
+                    if self.quote_after_cmdsubst_depth > 1 {
+                        self.quote_after_cmdsubst_depth -= 1;
+                    } else {
+                        let quote_char = self.quote_after_cmdsubst.unwrap();
+                        self.in_quotes = Some(quote_char);
+                        self.quote_after_cmdsubst = None;
+                        self.quote_after_cmdsubst_depth = 0;
+                    }
                 }
                 Token {
                     kind: TokenKind::RParen,
@@ -466,11 +527,17 @@ impl Lexer {
                     }
                 }
             }
-            '}' => Token {
-                kind: TokenKind::RBrace,
-                value: "}".to_string(),
-                position: current_position,
-            },
+            '}' => {
+                if let Some(quote_char) = self.quote_after_param_expansion {
+                    self.in_quotes = Some(quote_char);
+                    self.quote_after_param_expansion = None;
+                }
+                Token {
+                    kind: TokenKind::RBrace,
+                    value: "}".to_string(),
+                    position: current_position,
+                }
+            }
             '<' => {
                 if self.peek_char() == '(' {
                     // Process substitution <(
@@ -669,11 +736,17 @@ impl Lexer {
                 value: "'".to_string(),
                 position: current_position,
             },
-            '`' => Token {
-                kind: TokenKind::Backtick,
-                value: "`".to_string(),
-                position: current_position,
-            },
+            '`' => {
+                if let Some(quote_char) = self.quote_after_backtick {
+                    self.in_quotes = Some(quote_char);
+                    self.quote_after_backtick = None;
+                }
+                Token {
+                    kind: TokenKind::Backtick,
+                    value: "`".to_string(),
+                    position: current_position,
+                }
+            }
             '#' => self.read_comment(),
             '\0' => Token {
                 kind: TokenKind::EOF,
@@ -1416,13 +1489,32 @@ impl Lexer {
         let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut content = String::new();
         let quote_char = self.in_quotes.unwrap();
+        let is_double_quote = quote_char == '"';
 
         // Keep reading until we hit the closing quote or EOF
         while self.ch != quote_char && self.ch != '\0' {
-            // Handle escaped quotes
-            if self.ch == '\\' && self.peek_char() == quote_char {
+            // In double quotes, backslash escapes $, `, \, and " (preserving both chars)
+            if is_double_quote && self.ch == '\\' {
+                let next = self.peek_char();
+                if next == '$' || next == '`' || next == '\\' || next == '"' {
+                    content.push('\\');
+                    self.read_char(); // Move to the escaped char
+                    if self.ch == '\n' {
+                        self.line += 1;
+                        self.column = 0;
+                    }
+                    content.push(self.ch);
+                    self.read_char();
+                    continue;
+                }
+            } else if self.ch == '\\' && self.peek_char() == quote_char {
                 content.push('\\'); // Preserve the backslash
                 self.read_char(); // Move to the quote
+            }
+
+            // For double-quoted strings, unescaped $ and ` trigger expansions
+            if is_double_quote && (self.ch == '$' || self.ch == '`') {
+                break;
             }
 
             if self.ch == '\n' {
@@ -2043,6 +2135,134 @@ mod lexer_tests {
             TokenKind::Word("85".to_string()),
             TokenKind::RParen,
             TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_dollar_expansion_in_double_quotes() {
+        // echo "hello $FOO" should lex out the dollar sign and FOO
+        let input = r#"echo "hello $FOO""#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Quote,
+            TokenKind::Word("hello ".to_string()),
+            TokenKind::Dollar,
+            TokenKind::Word("FOO".to_string()),
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_dollar_at_start_of_double_quotes() {
+        let input = r#""$HOME""#;
+        let expected = vec![
+            TokenKind::Quote,
+            TokenKind::Dollar,
+            TokenKind::Word("HOME".to_string()),
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_param_expansion_in_double_quotes() {
+        // "${FOO}" inside double quotes
+        let input = r#""${FOO}""#;
+        let expected = vec![
+            TokenKind::Quote,
+            TokenKind::ParamExpansion,
+            TokenKind::Word("FOO".to_string()),
+            TokenKind::RBrace,
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_param_expansion_with_text_in_double_quotes() {
+        // "hello ${FOO} world"
+        let input = r#""hello ${FOO} world""#;
+        let expected = vec![
+            TokenKind::Quote,
+            TokenKind::Word("hello ".to_string()),
+            TokenKind::ParamExpansion,
+            TokenKind::Word("FOO".to_string()),
+            TokenKind::RBrace,
+            TokenKind::Word(" world".to_string()),
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_cmd_substitution_with_text_in_double_quotes() {
+        // "result: $(echo hello)"
+        let input = r#""result: $(echo hello)""#;
+        let expected = vec![
+            TokenKind::Quote,
+            TokenKind::Word("result: ".to_string()),
+            TokenKind::CmdSubst,
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Word("hello".to_string()),
+            TokenKind::RParen,
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_arith_substitution_in_double_quotes() {
+        // "$((1 + 2))" - arithmetic substitution inside double quotes
+        let input = r#""$((1 + 2))""#;
+        let expected = vec![
+            TokenKind::Quote,
+            TokenKind::ArithSubst,
+            TokenKind::Word("1".to_string()),
+            TokenKind::Word("+".to_string()),
+            TokenKind::Word("2".to_string()),
+            TokenKind::RParen,
+            TokenKind::RParen,
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_backtick_in_double_quotes() {
+        // "`date`" inside double quotes
+        let input = r#""`date`""#;
+        let expected = vec![
+            TokenKind::Quote,
+            TokenKind::Backtick,
+            TokenKind::Word("date".to_string()),
+            TokenKind::Backtick,
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_escaped_dollar_in_double_quotes() {
+        // "\$FOO" - escaped dollar should be literal inside double quotes
+        let input = r#""\$FOO""#;
+        let expected = vec![
+            TokenKind::Quote,
+            TokenKind::Word("\\$FOO".to_string()),
+            TokenKind::Quote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_single_quotes_no_expansion() {
+        // Single quotes preserve everything literally
+        let input = r#"'$FOO `date` $((1+2))'"#;
+        let expected = vec![
+            TokenKind::SingleQuote,
+            TokenKind::Word("$FOO `date` $((1+2))".to_string()),
+            TokenKind::SingleQuote,
         ];
         test_tokens(input, expected);
     }

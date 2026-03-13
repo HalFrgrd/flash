@@ -701,3 +701,161 @@ fn test_deeply_nested_tokens() {
         }
     }
 }
+
+#[test]
+fn test_double_quote_dollar_expansion() {
+    // echo "hello $FOO" should lex out the dollar sign and FOO
+    let mut lexer = Lexer::new(r#"echo "hello $FOO""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("hello ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("FOO".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_dollar_at_start() {
+    // "$FOO" - dollar at the start of a double-quoted string
+    let mut lexer = Lexer::new(r#""$FOO""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("FOO".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_param_expansion() {
+    // "${FOO}" inside double quotes
+    let mut lexer = Lexer::new(r#""${FOO}""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("FOO".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_param_expansion_with_text() {
+    // "hello ${FOO} world" - param expansion with surrounding text
+    let mut lexer = Lexer::new(r#""hello ${FOO} world""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("hello ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("FOO".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(" world".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_cmd_substitution_with_text() {
+    // "result: $(echo hello)" - command substitution with leading text
+    let mut lexer = Lexer::new(r#""result: $(echo hello)""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("result: ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("hello".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_arith_substitution() {
+    // "$((1 + 2))" - arithmetic substitution inside double quotes
+    let mut lexer = Lexer::new(r#""$((1 + 2))""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::ArithSubst);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("+".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("2".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_backtick_substitution() {
+    // "`date`" inside double quotes - backtick command substitution
+    let mut lexer = Lexer::new(r#""`date`""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::Backtick);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("date".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Backtick);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_escaped_dollar() {
+    // "\$FOO" - escaped dollar should be literal
+    let mut lexer = Lexer::new(r#""\$FOO""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    // \$ is an escape sequence - backslash and $ are literal
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("\\$FOO".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_single_quote_no_expansion() {
+    // Single quotes should NOT expand $, backticks, etc.
+    let mut lexer = Lexer::new(r#"'$FOO'"#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("$FOO".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
