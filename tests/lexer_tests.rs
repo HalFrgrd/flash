@@ -701,3 +701,10 @@ fn test_deeply_nested_tokens() {
         }
     }
 }
+
+#[test]
+fn test_double_rparen_token_kind() {
+    // DoubleRParen is defined for use by downstream dependents
+    let kind = TokenKind::DoubleRParen;
+    assert_eq!(kind, TokenKind::DoubleRParen);
+}
