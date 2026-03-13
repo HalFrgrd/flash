@@ -19,6 +19,7 @@ pub enum TokenKind {
     Or,                       // ||
     LParen,                   // (
     RParen,                   // )
+    DoubleRParen,             // ))
     LBrace,                   // {
     RBrace,                   // }
     Less,                     // <
