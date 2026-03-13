@@ -5,10 +5,13 @@
  * under GNU General Public License v3.0.
  */
 
+use std::ops::Range;
+
 /// Token types that can be produced by the lexer
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Word(String),
+    Whitespace(String),
     Assignment,               // =
     Pipe,                     // |
     Semicolon,                // ;
@@ -37,8 +40,8 @@ pub enum TokenKind {
     ParamExpansionOp(String), // :-, :=, :?, :+, #, ##, %, %%
     ProcessSubstIn,           // <(
     ProcessSubstOut,          // >(
-    HereDoc,                  // << followed by delimiter
-    HereDocDash,              // <<- followed by delimiter
+    HereDoc(String),          // << followed by delimiter
+    HereDocDash(String),      // <<- followed by delimiter
     HereDocContent(String),   // Content of here-document
     HereString,               // <<<
     ExtGlob(char),            // For ?(, *(, +(, @(, !(
@@ -73,6 +76,16 @@ pub enum TokenKind {
     EOF,
 }
 
+impl TokenKind {
+    pub fn is_word(&self) -> bool {
+        matches!(self, TokenKind::Word(_))
+    }
+
+    pub fn is_whitespace(&self) -> bool {
+        matches!(self, TokenKind::Whitespace(_))
+    }
+}
+
 /// A token produced by the lexer
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -81,16 +94,47 @@ pub struct Token {
     pub position: Position,
 }
 
+impl Token {
+    pub fn unquoted(&self) -> String {
+        match self.kind {
+            TokenKind::Word(_) | TokenKind::Whitespace(_) => {
+                let mut output = String::new();
+                let mut chars = self.value.chars().peekable();
+                while let Some(ch) = chars.next() {
+                    if ch == '\\' {
+                        if let Some(next) = chars.next() {
+                            output.push(next);
+                        } else {
+                            output.push(ch);
+                        }
+                    } else {
+                        output.push(ch);
+                    }
+                }
+                output
+            }
+            _ => self.value.clone(),
+        }
+    }
+
+    pub fn byte_range(&self) -> Range<usize> {
+        let start = self.position.byte;
+        let end = start + self.value.len();
+        start..end
+    }
+}
+
 /// Source position information
 #[derive(Debug, Clone, Copy)]
 pub struct Position {
     pub line: usize,
     pub column: usize,
+    pub byte: usize,
 }
 
 impl Position {
-    pub fn new(line: usize, column: usize) -> Self {
-        Self { line, column }
+    pub fn new(line: usize, column: usize, byte: usize) -> Self {
+        Self { line, column, byte }
     }
 }
 
@@ -146,6 +190,7 @@ pub struct Lexer {
     /// inside double quotes so that `in_quotes` can be restored at the closing
     /// backtick without interfering with the paren-based restore counter.
     quote_after_backtick: Option<char>,
+    in_extglob: bool,
 }
 
 impl Lexer {
@@ -163,6 +208,7 @@ impl Lexer {
             quote_after_param_expansion: None,
             rparen_restore_count: 0,
             quote_after_backtick: None,
+            in_extglob: false,
         };
         lexer.read_char();
         lexer
@@ -187,6 +233,14 @@ impl Lexer {
         }
     }
 
+    fn current_byte_offset(&self) -> usize {
+        self.input
+            .iter()
+            .take(self.position)
+            .map(|ch| ch.len_utf8())
+            .sum()
+    }
+
     // check if the current position is followed by whitespace or a special character
     fn is_word_boundary(&self) -> bool {
         let peek = self.peek_char();
@@ -208,7 +262,10 @@ impl Lexer {
         let saved_quote_after_backtick = self.quote_after_backtick;
 
         // Get the next token
-        let token = self.next_token();
+        let mut token = self.next_token();
+        while matches!(token.kind, TokenKind::Whitespace(_)) {
+            token = self.next_token();
+        }
 
         // Restore the saved state
         self.position = saved_position;
@@ -227,11 +284,44 @@ impl Lexer {
     }
 
     pub fn next_token(&mut self) -> Token {
-        if self.in_quotes.is_none() {
-            self.skip_whitespace();
+        if self.in_extglob {
+            if self.ch.is_whitespace() && self.ch != '\n' {
+                return self.read_whitespace();
+            }
+
+            let current_position =
+                Position::new(self.line, self.column, self.current_byte_offset());
+            let token = if self.ch == ')' {
+                self.in_extglob = false;
+                Token {
+                    kind: TokenKind::RParen,
+                    value: ")".to_string(),
+                    position: current_position,
+                }
+            } else if self.ch == '\0' {
+                // Incomplete extglob at EOF - exit extglob mode
+                self.in_extglob = false;
+                Token {
+                    kind: TokenKind::EOF,
+                    value: String::new(),
+                    position: current_position,
+                }
+            } else {
+                self.read_extglob_content()
+            };
+
+            if token.kind != TokenKind::Word(String::new()) && token.kind != TokenKind::EOF {
+                self.read_char();
+            }
+
+            return token;
         }
 
-        let current_position = Position::new(self.line, self.column);
+        if self.in_quotes.is_none() && self.ch.is_whitespace() && self.ch != '\n' {
+            return self.read_whitespace();
+        }
+
+        let current_position = Position::new(self.line, self.column, self.current_byte_offset());
 
         // Check for quote start/end
         if (self.ch == '"' || self.ch == '\'') && self.in_quotes.is_none() {
@@ -352,6 +442,22 @@ impl Lexer {
                 // Single-quoted context: no special characters.
                 return self.read_quoted_content();
             }
+        }
+
+        if self.in_quotes.is_none()
+            && matches!(self.ch, '?' | '*' | '+' | '@' | '!')
+            && self.peek_char() == '('
+        {
+            let op = self.ch;
+            let token = Token {
+                kind: TokenKind::ExtGlob(op),
+                value: op.to_string(),
+                position: current_position,
+            };
+            self.in_extglob = true;
+            self.read_char();
+            self.read_char();
+            return token;
         }
 
         let token = match self.ch {
@@ -498,16 +604,34 @@ impl Lexer {
                     } else if self.peek_char() == '-' {
                         // Here document with dash <<-
                         self.read_char(); // Consume '-'
+                        self.read_char(); // Move to next char
+
+                        // Skip whitespace before delimiter
+                        while self.ch.is_whitespace() && self.ch != '\n' {
+                            self.read_char();
+                        }
+
+                        // Read delimiter
+                        let delimiter = self.read_heredoc_delimiter();
                         Token {
-                            kind: TokenKind::HereDocDash,
-                            value: "<<-".to_string(),
+                            kind: TokenKind::HereDocDash(delimiter.clone()),
+                            value: format!("<<-{}", delimiter),
                             position: current_position,
                         }
                     } else {
                         // Regular here document <<
+                        self.read_char(); // Move to next char
+
+                        // Skip whitespace before delimiter
+                        while self.ch.is_whitespace() && self.ch != '\n' {
+                            self.read_char();
+                        }
+
+                        // Read delimiter
+                        let delimiter = self.read_heredoc_delimiter();
                         Token {
-                            kind: TokenKind::HereDoc,
-                            value: "<<".to_string(),
+                            kind: TokenKind::HereDoc(delimiter.clone()),
+                            value: format!("<<{}", delimiter),
                             position: current_position,
                         }
                     }
@@ -1145,50 +1269,8 @@ impl Lexer {
     }
 
     fn read_word(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut word = String::new();
-
-        // Check for extglob pattern prefixes
-        if (self.ch == '?' || self.ch == '*' || self.ch == '+' || self.ch == '@' || self.ch == '!')
-            && self.peek_char() == '('
-        {
-            let peek = self.peek_char();
-            if peek == '(' {
-                // This is an extglob pattern
-                word.push(self.ch); // Add the operator
-
-                self.read_char(); // Move past the operator
-                word.push(self.ch); // Add the open paren
-                self.read_char(); // Move past the open paren
-
-                // Read until matching closing paren, accounting for nesting
-                let mut depth = 1;
-
-                while depth > 0 && self.ch != '\0' {
-                    if self.ch == '(' {
-                        depth += 1;
-                    } else if self.ch == ')' {
-                        depth -= 1;
-                    }
-
-                    word.push(self.ch);
-                    self.read_char();
-                }
-
-                // After finding the closing parenthesis, continue reading
-                // any suffixes (like ".txt") that should be part of the pattern
-                while !self.ch.is_whitespace() && self.ch != '\0' && !is_word_terminator(self.ch) {
-                    word.push(self.ch);
-                    self.read_char();
-                }
-
-                return Token {
-                    kind: TokenKind::Word(word.clone()),
-                    value: word,
-                    position,
-                };
-            }
-        }
 
         // Read word characters, including glob patterns but handling braces carefully
         while !self.ch.is_whitespace() && self.ch != '\0' {
@@ -1259,9 +1341,15 @@ impl Lexer {
             else if self.ch == '\\' {
                 // Look at the next character
                 let next_ch = self.peek_char();
-                if next_ch != '\0' {
-                    // Skip the backslash and add the escaped character
-                    self.read_char(); // Skip the backslash
+                if next_ch == '\n' {
+                    // Preserve backslash but let newline be tokenized separately
+                    word.push(self.ch);
+                    self.read_char();
+                    break;
+                } else if next_ch != '\0' {
+                    // Preserve the backslash and add the escaped character
+                    word.push(self.ch); // Add the backslash
+                    self.read_char(); // Move to the escaped character
                     word.push(self.ch); // Add the escaped character
                     self.read_char(); // Move past the escaped character
                 } else {
@@ -1316,6 +1404,61 @@ impl Lexer {
         }
     }
 
+    fn read_extglob_content(&mut self) -> Token {
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
+        let mut word = String::new();
+
+        while self.ch != ')' && self.ch != '\0' && !self.ch.is_whitespace() {
+            if self.ch == '\\' {
+                let next_ch = self.peek_char();
+                if next_ch == '\n' {
+                    word.push(self.ch);
+                    self.read_char();
+                    break;
+                } else if next_ch != '\0' {
+                    word.push(self.ch);
+                    self.read_char();
+                    word.push(self.ch);
+                    self.read_char();
+                } else {
+                    word.push(self.ch);
+                    self.read_char();
+                }
+            } else {
+                word.push(self.ch);
+                self.read_char();
+            }
+        }
+
+        if self.position > 0 {
+            self.position -= 1;
+            self.read_position -= 1;
+            self.column -= 1;
+        }
+
+        Token {
+            kind: TokenKind::Word(word.clone()),
+            value: word,
+            position,
+        }
+    }
+
+    fn read_whitespace(&mut self) -> Token {
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
+        let mut whitespace = String::new();
+
+        while self.ch.is_whitespace() && self.ch != '\n' {
+            whitespace.push(self.ch);
+            self.read_char();
+        }
+
+        Token {
+            kind: TokenKind::Whitespace(whitespace.clone()),
+            value: whitespace,
+            position,
+        }
+    }
+
     // Check if the current position starts a brace expansion pattern like {1..10} or {a..z}
     fn is_brace_expansion(&self) -> bool {
         if self.ch != '{' {
@@ -1363,7 +1506,7 @@ impl Lexer {
     }
 
     fn read_comment(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut comment = String::from("#");
 
         self.read_char(); // Skip the '#'
@@ -1388,7 +1531,7 @@ impl Lexer {
     }
 
     fn read_quoted_content(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut content = String::new();
         let quote_char = self.in_quotes.unwrap();
 
@@ -1416,7 +1559,8 @@ impl Lexer {
             if self.ch == '\\' {
                 let next = self.peek_char();
                 if next == quote_char {
-                    // \<quote_char> → literal quote character (both " and ')
+                    // \<quote_char> → preserve the backslash and the quote character
+                    content.push('\\'); // Preserve the backslash
                     self.read_char(); // skip backslash, ch = quote_char
                 } else if quote_char == '"'
                     && matches!(next, '$' | '`' | '\\' | '\n')
@@ -1443,6 +1587,10 @@ impl Lexer {
             self.read_char();
         }
 
+        if self.ch == '\0' {
+            self.in_quotes = None;
+        }
+
         Token {
             kind: TokenKind::Word(content.clone()),
             value: content,
@@ -1455,7 +1603,7 @@ impl Lexer {
     /// Handles both regular variable names (`[a-zA-Z_][a-zA-Z0-9_]*`) and
     /// the special single-character shell variables (`@`, `*`, `?`, `#`, `!`, `-`).
     fn read_dquote_var_name(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
 
         // Special single-character positional/special parameters.
         if matches!(self.ch, '@' | '*' | '?' | '#' | '!' | '-') {
@@ -1491,7 +1639,7 @@ impl Lexer {
     // Parse parameter expansion content after ${
     pub fn read_parameter_expansion(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
-        let start_position = Position::new(self.line, self.column);
+        let start_position = Position::new(self.line, self.column, self.current_byte_offset());
 
         // Skip whitespace
         self.skip_whitespace();
@@ -1508,7 +1656,7 @@ impl Lexer {
             self.skip_whitespace();
         } else if self.ch == '#' {
             // Length expansion ${#var} or prefix removal ${var#pattern}
-            let pos = Position::new(self.line, self.column);
+            let pos = Position::new(self.line, self.column, self.current_byte_offset());
             self.read_char();
 
             // Check if this is length expansion (# followed by variable name)
@@ -1538,7 +1686,7 @@ impl Lexer {
 
         // Check for parameter expansion operators
         if self.ch == ':' {
-            let op_start = Position::new(self.line, self.column);
+            let op_start = Position::new(self.line, self.column, self.current_byte_offset());
             let mut op = String::new();
             op.push(self.ch);
             self.read_char();
@@ -1561,7 +1709,7 @@ impl Lexer {
             });
         } else if self.ch == '#' {
             // Prefix removal
-            let op_start = Position::new(self.line, self.column);
+            let op_start = Position::new(self.line, self.column, self.current_byte_offset());
             let mut op = String::new();
             op.push(self.ch);
             self.read_char();
@@ -1579,7 +1727,7 @@ impl Lexer {
             });
         } else if self.ch == '%' {
             // Suffix removal
-            let op_start = Position::new(self.line, self.column);
+            let op_start = Position::new(self.line, self.column, self.current_byte_offset());
             let mut op = String::new();
             op.push(self.ch);
             self.read_char();
@@ -1609,6 +1757,25 @@ impl Lexer {
         }
 
         tokens
+    }
+
+    fn read_heredoc_delimiter(&mut self) -> String {
+        let mut delimiter = String::new();
+
+        // Read until whitespace or newline
+        while !self.ch.is_whitespace() && self.ch != '\0' {
+            delimiter.push(self.ch);
+            self.read_char();
+        }
+
+        // Step back one character
+        if self.position > 0 {
+            self.position -= 1;
+            self.read_position -= 1;
+            self.column -= 1;
+        }
+
+        delimiter
     }
 
     // Parse here-document content
@@ -1686,6 +1853,25 @@ mod lexer_tests {
         let mut tokens = Vec::new();
 
         loop {
+            let mut token = lexer.next_token();
+            while matches!(token.kind, TokenKind::Whitespace(_)) {
+                token = lexer.next_token();
+            }
+            let is_eof = matches!(token.kind, TokenKind::EOF);
+            tokens.push(token);
+            if is_eof {
+                break;
+            }
+        }
+
+        tokens
+    }
+
+    fn collect_tokens_include_whitespace(input: &str) -> Vec<Token> {
+        let mut lexer = Lexer::new(input);
+        let mut tokens = Vec::new();
+
+        loop {
             let token = lexer.next_token();
             let is_eof = matches!(token.kind, TokenKind::EOF);
             tokens.push(token);
@@ -1697,7 +1883,48 @@ mod lexer_tests {
         tokens
     }
 
+    fn test_round_trip(input: &str) {
+        let tokens = collect_tokens_include_whitespace(input);
+        let reconstructed = tokens
+            .iter()
+            .map(|t| t.value.clone())
+            .collect::<Vec<String>>()
+            .join("");
+        assert_eq!(
+            input, reconstructed,
+            "Round-trip failed for input: {}",
+            input
+        );
+    }
+
     fn test_tokens(input: &str, expected_tokens: Vec<TokenKind>) {
+        let mut lexer = Lexer::new(input);
+        for expected in expected_tokens {
+            let mut token = lexer.next_token();
+            while matches!(token.kind, TokenKind::Whitespace(_)) {
+                token = lexer.next_token();
+            }
+            assert_eq!(
+                token.kind, expected,
+                "Expected {:?} but got {:?} for input: {}",
+                expected, token.kind, input
+            );
+        }
+
+        // Ensure we've consumed all tokens
+        let mut final_token = lexer.next_token();
+        while matches!(final_token.kind, TokenKind::Whitespace(_)) {
+            final_token = lexer.next_token();
+        }
+        assert_eq!(
+            final_token.kind,
+            TokenKind::EOF,
+            "Expected EOF but got {:?}",
+            final_token.kind
+        );
+    }
+
+    fn test_tokens_include_whitespace(input: &str, expected_tokens: Vec<TokenKind>) {
         let mut lexer = Lexer::new(input);
         for expected in expected_tokens {
             let token = lexer.next_token();
@@ -1718,6 +1945,14 @@ mod lexer_tests {
         );
     }
 
+    fn next_non_whitespace(lexer: &mut Lexer) -> Token {
+        let mut token = lexer.next_token();
+        while matches!(token.kind, TokenKind::Whitespace(_)) {
+            token = lexer.next_token();
+        }
+        token
+    }
+
     #[test]
     fn test_peek_without_advancing() {
         let input = "if then";
@@ -1729,12 +1964,12 @@ mod lexer_tests {
         assert_eq!(peeked_token.value, "if");
 
         // Current token should still be 'if' after peeking
-        let current_token = lexer.next_token();
+        let current_token = next_non_whitespace(&mut lexer);
         assert_eq!(current_token.kind, TokenKind::If);
         assert_eq!(current_token.value, "if");
 
         // Next token should be 'then'
-        let next_token = lexer.next_token();
+        let next_token = next_non_whitespace(&mut lexer);
         assert_eq!(next_token.kind, TokenKind::Then);
         assert_eq!(next_token.value, "then");
     }
@@ -1753,7 +1988,7 @@ mod lexer_tests {
         assert_eq!(second_peek.kind, TokenKind::For);
 
         // Now consume the 'for' token
-        let token = lexer.next_token();
+        let token = next_non_whitespace(&mut lexer);
         assert_eq!(token.kind, TokenKind::For);
 
         // Peek should now be 'i'
@@ -1793,12 +2028,12 @@ mod lexer_tests {
         assert_eq!(peek_token.kind, TokenKind::Word("[".to_string()));
 
         // Lexer position should still be at the same point
-        let bracket_token = lexer.next_token();
+        let bracket_token = next_non_whitespace(&mut lexer);
         assert_eq!(bracket_token.kind, TokenKind::Word("[".to_string()));
 
         // Let's consume a few more tokens
-        lexer.next_token(); // $
-        lexer.next_token(); // a
+        next_non_whitespace(&mut lexer); // $
+        next_non_whitespace(&mut lexer); // a
 
         // Peek should now be '='
         let eq_peek = lexer.peek_next_token();
@@ -1806,7 +2041,7 @@ mod lexer_tests {
         assert_eq!(eq_peek.value, "=");
 
         // And verify we're still at the same position
-        let eq_token = lexer.next_token();
+        let eq_token = next_non_whitespace(&mut lexer);
         assert_eq!(eq_token.kind, TokenKind::Assignment);
     }
 
@@ -1816,8 +2051,8 @@ mod lexer_tests {
         let mut lexer = Lexer::new(input);
 
         // Consume 'ls' and '-l'
-        lexer.next_token(); // ls
-        lexer.next_token(); // -l
+        next_non_whitespace(&mut lexer); // ls
+        next_non_whitespace(&mut lexer); // -l
 
         // Peek should now be '||'
         let or_peek = lexer.peek_next_token();
@@ -1825,7 +2060,7 @@ mod lexer_tests {
         assert_eq!(or_peek.value, "||");
 
         // Verify we still get '||' when advancing
-        let or_token = lexer.next_token();
+        let or_token = next_non_whitespace(&mut lexer);
         assert_eq!(or_token.kind, TokenKind::Or);
 
         // Peek should now be 'echo'
@@ -1839,15 +2074,15 @@ mod lexer_tests {
         let mut lexer = Lexer::new(input);
 
         // Consume 'echo' and 'hello'
-        lexer.next_token(); // echo
-        lexer.next_token(); // hello
+        next_non_whitespace(&mut lexer); // echo
+        next_non_whitespace(&mut lexer); // hello
 
         // Peek should be newline
         let nl_peek = lexer.peek_next_token();
         assert_eq!(nl_peek.kind, TokenKind::Newline);
 
         // Advance past newline
-        let nl_token = lexer.next_token();
+        let nl_token = next_non_whitespace(&mut lexer);
         assert_eq!(nl_token.kind, TokenKind::Newline);
 
         // Peek should now be the second 'echo'
@@ -1865,7 +2100,7 @@ mod lexer_tests {
         assert_eq!(comment_peek.kind, TokenKind::Comment);
 
         // Advance past comment
-        let comment_token = lexer.next_token();
+        let comment_token = next_non_whitespace(&mut lexer);
         assert_eq!(comment_token.kind, TokenKind::Comment);
 
         // Peek should now be newline
@@ -2243,9 +2478,18 @@ mod lexer_tests {
         let input = "ls ?(file|temp).txt *(a|b|c).log +(1|2|3).dat";
         let expected = vec![
             TokenKind::Word("ls".to_string()),
-            TokenKind::Word("?(file|temp).txt".to_string()),
-            TokenKind::Word("*(a|b|c).log".to_string()),
-            TokenKind::Word("+(1|2|3).dat".to_string()),
+            TokenKind::ExtGlob('?'),
+            TokenKind::Word("file|temp".to_string()),
+            TokenKind::RParen,
+            TokenKind::Word(".txt".to_string()),
+            TokenKind::ExtGlob('*'),
+            TokenKind::Word("a|b|c".to_string()),
+            TokenKind::RParen,
+            TokenKind::Word(".log".to_string()),
+            TokenKind::ExtGlob('+'),
+            TokenKind::Word("1|2|3".to_string()),
+            TokenKind::RParen,
+            TokenKind::Word(".dat".to_string()),
         ];
         test_tokens(input, expected);
     }
@@ -2877,7 +3121,7 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::Word("echo".to_string()),
             TokenKind::Quote,
-            TokenKind::Word("escaped \" quote".to_string()),
+            TokenKind::Word(r#"escaped \" quote"#.to_string()),
             TokenKind::Quote,
         ];
         test_tokens(input, expected);
@@ -2937,9 +3181,17 @@ mod lexer_tests {
         let input = "ls !(*.tmp|*.log) @(file1|file2).txt +(a|b|c)*";
         let expected = vec![
             TokenKind::Word("ls".to_string()),
-            TokenKind::Word("!(*.tmp|*.log)".to_string()),
-            TokenKind::Word("@(file1|file2).txt".to_string()),
-            TokenKind::Word("+(a|b|c)*".to_string()),
+            TokenKind::ExtGlob('!'),
+            TokenKind::Word("*.tmp|*.log".to_string()),
+            TokenKind::RParen,
+            TokenKind::ExtGlob('@'),
+            TokenKind::Word("file1|file2".to_string()),
+            TokenKind::RParen,
+            TokenKind::Word(".txt".to_string()),
+            TokenKind::ExtGlob('+'),
+            TokenKind::Word("a|b|c".to_string()),
+            TokenKind::RParen,
+            TokenKind::Word("*".to_string()),
         ];
         test_tokens(input, expected);
     }
@@ -3051,6 +3303,33 @@ mod lexer_tests {
     }
 
     #[test]
+    fn test_whitespace_tokens_leading() {
+        let input = "  echo";
+        let expected = vec![
+            TokenKind::Whitespace("  ".to_string()),
+            TokenKind::Word("echo".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_whitespace_tokens_trailing() {
+        let input = "echo  ";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace("  ".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_whitespace_tokens_only() {
+        let input = " \t  ";
+        let expected = vec![TokenKind::Whitespace(" \t  ".to_string())];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
     fn test_empty_input() {
         let input = "";
         let expected = vec![];
@@ -3148,10 +3427,10 @@ mod lexer_tests {
         let echo_token = lexer.next_token();
         assert_eq!(echo_token.kind, TokenKind::Word("echo".to_string()));
 
-        let quote_token = lexer.next_token();
+        let quote_token = next_non_whitespace(&mut lexer);
         assert_eq!(quote_token.kind, TokenKind::Quote);
 
-        let content_token = lexer.next_token();
+        let content_token = next_non_whitespace(&mut lexer);
         assert_eq!(
             content_token.kind,
             TokenKind::Word("unclosed quote".to_string())
@@ -3174,7 +3453,10 @@ mod lexer_tests {
 
         let mut token_count = 0;
         loop {
-            let token = lexer.next_token();
+            let mut token = lexer.next_token();
+            while matches!(token.kind, TokenKind::Whitespace(_)) {
+                token = lexer.next_token();
+            }
             if token.kind == TokenKind::EOF {
                 break;
             }
@@ -3408,7 +3690,11 @@ mod lexer_tests {
     fn test_extglob_vs_negation() {
         // Test that !(pattern) is treated as a word (extglob pattern)
         let input = "!(*.txt)";
-        let expected = vec![TokenKind::Word("!(*.txt)".to_string())];
+        let expected = vec![
+            TokenKind::ExtGlob('!'),
+            TokenKind::Word("*.txt".to_string()),
+            TokenKind::RParen,
+        ];
         test_tokens(input, expected);
 
         // But ! (pattern) should be negation + subshell
@@ -3421,5 +3707,140 @@ mod lexer_tests {
             TokenKind::RParen,
         ];
         test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_backslashed_spaces() {
+        let input = "echo hello\\ world";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Word("hello\\ world".to_string()),
+        ];
+        test_tokens(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_1() {
+        let input = r#"echo "asd\"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Quote,
+            TokenKind::Word("asd\\".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_2() {
+        let input = r#"echo "asd\ "#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Quote,
+            TokenKind::Word("asd\\ ".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_3() {
+        let input = r#"echo \""#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("\\\"".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_4() {
+        let input = r#"echo asd\ foo"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("asd\\ foo".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_5() {
+        let input = r#"echo foo\"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("foo\\".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_lexer_on_backslash_6() {
+        let input = r#"echo \"foo"#;
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("\\\"foo".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_line_continuation() {
+        let input = "ls \\\n-la";
+        let expected = vec![
+            TokenKind::Word("ls".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("\\".to_string()),
+            TokenKind::Newline,
+            TokenKind::Word("-la".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_line_continuation_with_spaces() {
+        let input = "echo hello\\\\\\";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Word("hello\\\\\\".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_termination_of_lexing() {
+        let input = "echo \"";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Quote,
+            TokenKind::Word("".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
+    }
+
+    #[test]
+    fn test_extglob_termination() {
+        let input = "echo @(a|b";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::ExtGlob('@'),
+            TokenKind::Word("a|b".to_string()),
+        ];
+        test_tokens_include_whitespace(input, expected);
     }
 }
