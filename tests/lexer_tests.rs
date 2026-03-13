@@ -859,3 +859,15 @@ fn test_single_quote_no_expansion() {
     assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
+
+#[test]
+fn test_double_rparen_token_kind() {
+    // DoubleRParen is defined for downstream dependents and is not emitted by the lexer.
+    // Verify the variant exists and its derived traits work correctly.
+    let token = TokenKind::DoubleRParen;
+    assert_eq!(token, TokenKind::DoubleRParen);
+    assert_ne!(token, TokenKind::RParen);
+    let cloned = token.clone();
+    assert_eq!(cloned, TokenKind::DoubleRParen);
+    assert!(format!("{:?}", token).contains("DoubleRParen"));
+}
