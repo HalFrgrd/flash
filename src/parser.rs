@@ -195,12 +195,12 @@ impl Parser {
             current_token: Token {
                 kind: TokenKind::EOF,
                 value: String::new(),
-                position: Position::new(0, 0),
+                position: Position::new(0, 0, 0),
             },
             peek_token: Token {
                 kind: TokenKind::EOF,
                 value: String::new(),
-                position: Position::new(0, 0),
+                position: Position::new(0, 0, 0),
             },
         };
 
@@ -212,6 +212,10 @@ impl Parser {
     pub fn next_token(&mut self) {
         self.current_token = self.peek_token.clone();
         self.peek_token = self.lexer.next_token();
+
+        while matches!(self.peek_token.kind, TokenKind::Whitespace(_)) {
+            self.peek_token = self.lexer.next_token();
+        }
     }
 
     // Function definition: name() { ... }
@@ -1360,7 +1364,14 @@ impl Parser {
         {
             match &self.current_token.kind {
                 TokenKind::Word(word) => {
-                    current_pattern.push_str(word);
+                    let mut parts = word.split('|').peekable();
+                    while let Some(part) = parts.next() {
+                        current_pattern.push_str(part);
+                        if parts.peek().is_some() {
+                            patterns.push(current_pattern);
+                            current_pattern = String::new();
+                        }
+                    }
                 }
                 TokenKind::Pipe => {
                     patterns.push(current_pattern);
