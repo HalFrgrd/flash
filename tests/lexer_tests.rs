@@ -873,28 +873,31 @@ fn test_double_rparen_token_kind() {
 }
 
 #[test]
-fn test_issue_bracket_quote() {
-    // Test the specific issue: "a ['" should be two separate tokens
-    let input = "a ['";
-    let mut lexer = Lexer::new(input);
-    
-    println!("Testing input: {:?}", input);
-    
-    // Collect all tokens
-    let mut tokens = Vec::new();
-    loop {
-        let token = lexer.next_token();
-        println!("Token: {:?}", token);
-        tokens.push(token.clone());
-        if matches!(token.kind, TokenKind::EOF) {
-            break;
-        }
-    }
-    
-    // Expected: a, space, [, ', EOF
-    // Currently may be parsing ['as a single word token
-    println!("Total tokens collected: {}", tokens.len());
-    for (i, tok) in tokens.iter().enumerate() {
-        println!("  [{}] {:?} = {:?}", i, tok.kind, tok.value);
-    }
+fn test_bracket_followed_by_single_quote() {
+    // "a ['" should parse as: word, whitespace, word([), singlequote
+    let mut lexer = Lexer::new("a ['");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("a".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("[".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_bracket_followed_by_double_quote() {
+    // "a [\"" should parse as: word, whitespace, word([), quote
+    let mut lexer = Lexer::new("a [\"");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("a".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("[".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }

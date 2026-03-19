@@ -1282,7 +1282,7 @@ impl Lexer {
                 }
 
                 // Read until closing bracket
-                while self.ch != ']' && self.ch != '\0' && !self.ch.is_whitespace() {
+                while self.ch != ']' && self.ch != '\0' && !self.ch.is_whitespace() && !is_word_terminator(self.ch) {
                     word.push(self.ch);
                     self.read_char();
                 }
@@ -1529,6 +1529,13 @@ impl Lexer {
 
         if self.ch == '\0' {
             self.in_quotes = None;
+            if content.is_empty() {
+                return Token {
+                    kind: TokenKind::EOF,
+                    value: String::new(),
+                    position,
+                };
+            }
         }
 
         Token {
