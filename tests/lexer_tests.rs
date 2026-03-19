@@ -871,3 +871,30 @@ fn test_double_rparen_token_kind() {
     assert_eq!(cloned, TokenKind::DoubleRParen);
     assert!(format!("{:?}", token).contains("DoubleRParen"));
 }
+
+#[test]
+fn test_issue_bracket_quote() {
+    // Test the specific issue: "a ['" should be two separate tokens
+    let input = "a ['";
+    let mut lexer = Lexer::new(input);
+    
+    println!("Testing input: {:?}", input);
+    
+    // Collect all tokens
+    let mut tokens = Vec::new();
+    loop {
+        let token = lexer.next_token();
+        println!("Token: {:?}", token);
+        tokens.push(token.clone());
+        if matches!(token.kind, TokenKind::EOF) {
+            break;
+        }
+    }
+    
+    // Expected: a, space, [, ', EOF
+    // Currently may be parsing ['as a single word token
+    println!("Total tokens collected: {}", tokens.len());
+    for (i, tok) in tokens.iter().enumerate() {
+        println!("  [{}] {:?} = {:?}", i, tok.kind, tok.value);
+    }
+}
