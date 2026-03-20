@@ -871,3 +871,33 @@ fn test_double_rparen_token_kind() {
     assert_eq!(cloned, TokenKind::DoubleRParen);
     assert!(format!("{:?}", token).contains("DoubleRParen"));
 }
+
+#[test]
+fn test_bracket_followed_by_single_quote() {
+    // "a ['" should parse as: word, whitespace, word([), singlequote
+    let mut lexer = Lexer::new("a ['");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("a".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("[".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_bracket_followed_by_double_quote() {
+    // "a [\"" should parse as: word, whitespace, word([), quote
+    let mut lexer = Lexer::new("a [\"");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("a".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("[".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
