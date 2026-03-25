@@ -181,6 +181,7 @@ pub struct Lexer {
     quote_after_param_expansion: Option<char>,
     quote_after_backtick: Option<char>,
     in_extglob: bool,
+    param_expansion_depth: usize,
 }
 
 impl Lexer {
@@ -198,6 +199,7 @@ impl Lexer {
             quote_after_param_expansion: None,
             quote_after_backtick: None,
             in_extglob: false,
+            param_expansion_depth: 0,
         };
         lexer.read_char();
         lexer
@@ -243,6 +245,7 @@ impl Lexer {
         let saved_ch = self.ch;
         let saved_line = self.line;
         let saved_column = self.column;
+        let saved_param_expansion_depth = self.param_expansion_depth;
 
         // Get the next token
         let mut token = self.next_token();
@@ -256,6 +259,7 @@ impl Lexer {
         self.ch = saved_ch;
         self.line = saved_line;
         self.column = saved_column;
+        self.param_expansion_depth = saved_param_expansion_depth;
 
         token
     }
@@ -369,6 +373,7 @@ impl Lexer {
                     // Parameter expansion ${
                     self.quote_after_param_expansion = self.in_quotes;
                     self.in_quotes = None;
+                    self.param_expansion_depth += 1;
                     self.read_char(); // Consume '{'
                     self.read_char(); // Advance to first char inside ${...}
                     return Token {
@@ -533,6 +538,9 @@ impl Lexer {
                     self.in_quotes = Some(quote_char);
                     self.quote_after_param_expansion = None;
                 }
+                if self.param_expansion_depth > 0 {
+                    self.param_expansion_depth -= 1;
+                }
                 Token {
                     kind: TokenKind::RBrace,
                     value: "}".to_string(),
@@ -661,6 +669,40 @@ impl Lexer {
                     }
                 }
             }
+            '%' if self.param_expansion_depth > 0 => {
+                // Inside ${...}, % is a suffix removal operator
+                if self.peek_char() == '%' {
+                    self.read_char(); // consume second %
+                    Token {
+                        kind: TokenKind::Word("%%".to_string()),
+                        value: "%%".to_string(),
+                        position: current_position,
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Word("%".to_string()),
+                        value: "%".to_string(),
+                        position: current_position,
+                    }
+                }
+            }
+            '/' if self.param_expansion_depth > 0 => {
+                // Inside ${...}, / is a substitution operator
+                if self.peek_char() == '/' {
+                    self.read_char(); // consume second /
+                    Token {
+                        kind: TokenKind::Word("//".to_string()),
+                        value: "//".to_string(),
+                        position: current_position,
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Word("/".to_string()),
+                        value: "/".to_string(),
+                        position: current_position,
+                    }
+                }
+            }
             '[' => {
                 // Check for [[ extended test command
                 if self.peek_char() == '[' {
@@ -713,6 +755,7 @@ impl Lexer {
                     }
                 } else if self.peek_char() == '{' {
                     // Parameter expansion ${
+                    self.param_expansion_depth += 1;
                     self.read_char(); // Consume the '{'
                     Token {
                         kind: TokenKind::ParamExpansion,
@@ -748,7 +791,27 @@ impl Lexer {
                     position: current_position,
                 }
             }
-            '#' => self.read_comment(),
+            '#' => {
+                if self.param_expansion_depth > 0 {
+                    // Inside ${...}, # is an operator (length, prefix removal, or pattern anchor)
+                    if self.peek_char() == '#' {
+                        self.read_char(); // consume second #
+                        Token {
+                            kind: TokenKind::Word("##".to_string()),
+                            value: "##".to_string(),
+                            position: current_position,
+                        }
+                    } else {
+                        Token {
+                            kind: TokenKind::Word("#".to_string()),
+                            value: "#".to_string(),
+                            position: current_position,
+                        }
+                    }
+                } else {
+                    self.read_comment()
+                }
+            }
             '\0' => Token {
                 kind: TokenKind::EOF,
                 value: "".to_string(),
@@ -1245,6 +1308,11 @@ impl Lexer {
             }
             // Check for other word terminators
             else if is_word_terminator(self.ch) {
+                break;
+            }
+            // Inside ${...}, % and / are operators that terminate the current word.
+            // Note: # is already covered by is_word_terminator() above.
+            else if self.param_expansion_depth > 0 && matches!(self.ch, '%' | '/') {
                 break;
             }
             // Handle brace expansion - check if this looks like a glob pattern
@@ -3214,7 +3282,9 @@ mod lexer_tests {
             TokenKind::Word("array[@]".to_string()),
             TokenKind::RBrace,
             TokenKind::ParamExpansion,
-            TokenKind::Comment,
+            TokenKind::Word("#".to_string()),
+            TokenKind::Word("array[@]".to_string()),
+            TokenKind::RBrace,
         ];
         test_tokens(input, expected);
     }
