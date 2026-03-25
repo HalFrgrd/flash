@@ -132,19 +132,6 @@ pub struct Lexer {
     column: usize,
     in_quotes: Option<char>,
     quote_after_cmdsubst: Option<char>,
-    /// Set after emitting a Dollar token inside double quotes; signals that the
-    /// next token should be the variable name only (not full quoted content).
-    after_dollar_in_dquotes: bool,
-    /// Saves the double-quote state while parsing a `${...}` expansion so that
-    /// `in_quotes` can be restored when the matching `}` is seen.
-    quote_after_param_expansion: Option<char>,
-    /// Number of RParen tokens that must be consumed before restoring
-    /// `in_quotes` from `quote_after_cmdsubst`.  1 for `$(...)`, 2 for `$((...))`.
-    rparen_restore_count: u8,
-    /// Saves the double-quote state when a backtick substitution is opened
-    /// inside double quotes so that `in_quotes` can be restored at the closing
-    /// backtick without interfering with the paren-based restore counter.
-    quote_after_backtick: Option<char>,
 }
 
 impl Lexer {
@@ -158,10 +145,6 @@ impl Lexer {
             column: 0,
             in_quotes: None,
             quote_after_cmdsubst: None,
-            after_dollar_in_dquotes: false,
-            quote_after_param_expansion: None,
-            rparen_restore_count: 0,
-            quote_after_backtick: None,
         };
         lexer.read_char();
         lexer
@@ -199,12 +182,6 @@ impl Lexer {
         let saved_ch = self.ch;
         let saved_line = self.line;
         let saved_column = self.column;
-        let saved_in_quotes = self.in_quotes;
-        let saved_quote_after_cmdsubst = self.quote_after_cmdsubst;
-        let saved_after_dollar_in_dquotes = self.after_dollar_in_dquotes;
-        let saved_quote_after_param_expansion = self.quote_after_param_expansion;
-        let saved_rparen_restore_count = self.rparen_restore_count;
-        let saved_quote_after_backtick = self.quote_after_backtick;
 
         // Get the next token
         let token = self.next_token();
@@ -215,12 +192,6 @@ impl Lexer {
         self.ch = saved_ch;
         self.line = saved_line;
         self.column = saved_column;
-        self.in_quotes = saved_in_quotes;
-        self.quote_after_cmdsubst = saved_quote_after_cmdsubst;
-        self.after_dollar_in_dquotes = saved_after_dollar_in_dquotes;
-        self.quote_after_param_expansion = saved_quote_after_param_expansion;
-        self.rparen_restore_count = saved_rparen_restore_count;
-        self.quote_after_backtick = saved_quote_after_backtick;
 
         token
     }
@@ -266,89 +237,21 @@ impl Lexer {
             self.read_char();
             return token;
         } else if self.in_quotes.is_some() {
-            // We're inside quotes.
-            if self.in_quotes == Some('"') {
-                // Double-quoted context: $, ` and \ are special.
-                if self.after_dollar_in_dquotes {
-                    // Just emitted Dollar – read only the variable name.
-                    self.after_dollar_in_dquotes = false;
-                    return self.read_dquote_var_name();
-                } else if self.ch == '$' {
-                    let next = self.peek_char();
-                    if next == '(' {
-                        // Distinguish $((arithmetic)) from $(command)
-                        if self.position + 2 < self.input.len()
-                            && self.input[self.position + 2] == '('
-                        {
-                            // Arithmetic expansion $((
-                            self.quote_after_cmdsubst = self.in_quotes;
-                            self.rparen_restore_count = 2;
-                            self.in_quotes = None;
-                            self.read_char(); // $ → (
-                            self.read_char(); // ( → (  (second open paren)
-                            self.read_char(); // advance past second (, ch = first char inside
-                            return Token {
-                                kind: TokenKind::ArithSubst,
-                                value: "$((".to_string(),
-                                position: current_position,
-                            };
-                        } else {
-                            // Command substitution $(
-                            self.quote_after_cmdsubst = self.in_quotes;
-                            self.rparen_restore_count = 1;
-                            self.in_quotes = None;
-                            self.read_char(); // $ → (
-                            self.read_char(); // advance past (, ch = first char inside
-                            return Token {
-                                kind: TokenKind::CmdSubst,
-                                value: "$(".to_string(),
-                                position: current_position,
-                            };
-                        }
-                    } else if next == '{' {
-                        // Parameter expansion ${
-                        self.quote_after_param_expansion = self.in_quotes;
-                        self.in_quotes = None;
-                        self.read_char(); // $ → {
-                        self.read_char(); // advance past {, ch = first char inside
-                        return Token {
-                            kind: TokenKind::ParamExpansion,
-                            value: "${".to_string(),
-                            position: current_position,
-                        };
-                    } else if next.is_alphanumeric()
-                        || next == '_'
-                        || matches!(next, '@' | '*' | '?' | '#' | '!' | '-')
-                    {
-                        // Plain variable reference: $NAME or $@, $*, etc.
-                        self.after_dollar_in_dquotes = true;
-                        self.read_char(); // consume $, ch = first char of name
-                        return Token {
-                            kind: TokenKind::Dollar,
-                            value: "$".to_string(),
-                            position: current_position,
-                        };
-                    } else {
-                        // $ not followed by a recognized expansion – treat literally.
-                        return self.read_quoted_content();
-                    }
-                } else if self.ch == '`' {
-                    // Backtick command substitution inside double quotes.
-                    // Use a dedicated field so this doesn't interfere with the
-                    // rparen-based restore counter used by $(...) and $((...)).
-                    self.quote_after_backtick = self.in_quotes;
-                    self.in_quotes = None;
-                    self.read_char(); // advance past `, ch = first char inside
-                    return Token {
-                        kind: TokenKind::Backtick,
-                        value: "`".to_string(),
-                        position: current_position,
-                    };
-                } else {
-                    return self.read_quoted_content();
-                }
+            // We're inside quotes, but check for command substitution first
+            if self.ch == '$' && self.peek_char() == '(' {
+                // Handle command substitution even inside quotes
+                // Save the quote state and temporarily exit quote mode
+                self.quote_after_cmdsubst = self.in_quotes;
+                self.in_quotes = None;
+                self.read_char(); // Consume the '('
+                self.read_char(); // Advance to the next character (like the end of method does)
+                return Token {
+                    kind: TokenKind::CmdSubst,
+                    value: "$(".to_string(),
+                    position: current_position,
+                };
             } else {
-                // Single-quoted context: no special characters.
+                // Regular quoted content
                 return self.read_quoted_content();
             }
         }
@@ -434,15 +337,10 @@ impl Lexer {
                 }
             }
             ')' => {
-                // Restore quote state after command/arithmetic substitution if needed.
-                if self.rparen_restore_count > 0 {
-                    self.rparen_restore_count -= 1;
-                    if self.rparen_restore_count == 0 {
-                        if let Some(quote_char) = self.quote_after_cmdsubst {
-                            self.in_quotes = Some(quote_char);
-                            self.quote_after_cmdsubst = None;
-                        }
-                    }
+                // Check if we need to restore quote state after command substitution
+                if let Some(quote_char) = self.quote_after_cmdsubst {
+                    self.in_quotes = Some(quote_char);
+                    self.quote_after_cmdsubst = None;
                 }
                 Token {
                     kind: TokenKind::RParen,
@@ -462,18 +360,11 @@ impl Lexer {
                     }
                 }
             }
-            '}' => {
-                // Restore quote state after a ${...} expansion that was opened inside double quotes.
-                if let Some(quote_char) = self.quote_after_param_expansion {
-                    self.in_quotes = Some(quote_char);
-                    self.quote_after_param_expansion = None;
-                }
-                Token {
-                    kind: TokenKind::RBrace,
-                    value: "}".to_string(),
-                    position: current_position,
-                }
-            }
+            '}' => Token {
+                kind: TokenKind::RBrace,
+                value: "}".to_string(),
+                position: current_position,
+            },
             '<' => {
                 if self.peek_char() == '(' {
                     // Process substitution <(
@@ -654,19 +545,11 @@ impl Lexer {
                 value: "'".to_string(),
                 position: current_position,
             },
-            '`' => {
-                // Restore quote state if this backtick closes a substitution that
-                // was opened inside double quotes.
-                if let Some(quote_char) = self.quote_after_backtick {
-                    self.in_quotes = Some(quote_char);
-                    self.quote_after_backtick = None;
-                }
-                Token {
-                    kind: TokenKind::Backtick,
-                    value: "`".to_string(),
-                    position: current_position,
-                }
-            }
+            '`' => Token {
+                kind: TokenKind::Backtick,
+                value: "`".to_string(),
+                position: current_position,
+            },
             '#' => self.read_comment(),
             '\0' => Token {
                 kind: TokenKind::EOF,
@@ -1393,44 +1276,9 @@ impl Lexer {
 
         // Keep reading until we hit the closing quote or EOF
         while self.ch != quote_char && self.ch != '\0' {
-            // Inside double quotes, $ that starts an expansion and ` are special
-            // and must be handled by next_token() rather than consumed here.
-            if quote_char == '"' {
-                if self.ch == '$' {
-                    let next = self.peek_char();
-                    if next == '('
-                        || next == '{'
-                        || next.is_alphanumeric()
-                        || next == '_'
-                        || matches!(next, '@' | '*' | '?' | '#' | '!' | '-')
-                    {
-                        break;
-                    }
-                } else if self.ch == '`' {
-                    break;
-                }
-            }
-
-            // Handle backslash escapes.
-            if self.ch == '\\' {
-                let next = self.peek_char();
-                if next == quote_char {
-                    // \<quote_char> → literal quote character (both " and ')
-                    self.read_char(); // skip backslash, ch = quote_char
-                } else if quote_char == '"'
-                    && matches!(next, '$' | '`' | '\\' | '\n')
-                {
-                    // Inside double quotes, \ before $, `, \, or newline is an escape.
-                    self.read_char(); // skip backslash, ch = escaped char
-                    if self.ch == '\n' {
-                        // Line continuation: skip the newline entirely.
-                        self.line += 1;
-                        self.column = 0;
-                        self.read_char();
-                        continue;
-                    }
-                }
-                // All other \ are kept literally (fall through to push self.ch).
+            // Handle escaped quotes
+            if self.ch == '\\' && self.peek_char() == quote_char {
+                self.read_char(); // Skip the backslash
             }
 
             if self.ch == '\n' {
@@ -1445,38 +1293,6 @@ impl Lexer {
         Token {
             kind: TokenKind::Word(content.clone()),
             value: content,
-            position,
-        }
-    }
-
-    /// Read a variable name after `$` inside double quotes.
-    ///
-    /// Handles both regular variable names (`[a-zA-Z_][a-zA-Z0-9_]*`) and
-    /// the special single-character shell variables (`@`, `*`, `?`, `#`, `!`, `-`).
-    fn read_dquote_var_name(&mut self) -> Token {
-        let position = Position::new(self.line, self.column);
-
-        // Special single-character positional/special parameters.
-        if matches!(self.ch, '@' | '*' | '?' | '#' | '!' | '-') {
-            let ch = self.ch;
-            self.read_char();
-            return Token {
-                kind: TokenKind::Word(ch.to_string()),
-                value: ch.to_string(),
-                position,
-            };
-        }
-
-        // Regular variable name: digits (for $0–$9) or [a-zA-Z_][a-zA-Z0-9_]*.
-        let mut name = String::new();
-        while self.ch.is_alphanumeric() || self.ch == '_' {
-            name.push(self.ch);
-            self.read_char();
-        }
-
-        Token {
-            kind: TokenKind::Word(name.clone()),
-            value: name,
             position,
         }
     }
