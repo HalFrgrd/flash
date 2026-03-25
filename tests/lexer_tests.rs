@@ -674,3 +674,216 @@ fn test_dquote_param_expansion_with_suffix() {
     assert_eq!(lexer.next_token().kind, TokenKind::Quote);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
+
+/// `${#parameter}` — string-length expansion.
+#[test]
+fn test_param_expansion_length() {
+    let mut lexer = Lexer::new("${#parameter}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("#".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter#word}` — remove smallest prefix pattern.
+#[test]
+fn test_param_expansion_remove_smallest_prefix() {
+    let mut lexer = Lexer::new("${parameter#word}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("#".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("word".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter##word}` — remove largest prefix pattern.
+#[test]
+fn test_param_expansion_remove_largest_prefix() {
+    let mut lexer = Lexer::new("${parameter##word}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("##".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("word".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter%word}` — remove smallest suffix pattern.
+#[test]
+fn test_param_expansion_remove_smallest_suffix() {
+    let mut lexer = Lexer::new("${parameter%word}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("%".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("word".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter%%word}` — remove largest suffix pattern.
+#[test]
+fn test_param_expansion_remove_largest_suffix() {
+    let mut lexer = Lexer::new("${parameter%%word}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("%%".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("word".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter/pattern/string}` — replace first occurrence.
+#[test]
+fn test_param_expansion_replace_first() {
+    let mut lexer = Lexer::new("${parameter/pattern/string}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("string".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter//pattern/string}` — replace all occurrences.
+#[test]
+fn test_param_expansion_replace_all() {
+    let mut lexer = Lexer::new("${parameter//pattern/string}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("//".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("string".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter/#pattern/string}` — replace match at start (prefix anchor).
+#[test]
+fn test_param_expansion_replace_prefix_anchor() {
+    let mut lexer = Lexer::new("${parameter/#pattern/string}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("#".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("string".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `${parameter/%pattern/string}` — replace match at end (suffix anchor).
+#[test]
+fn test_param_expansion_replace_suffix_anchor() {
+    let mut lexer = Lexer::new("${parameter/%pattern/string}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("%".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("string".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+/// `"${parameter/#pattern/string}"` — prefix-anchor substitution inside double quotes.
+#[test]
+fn test_dquote_param_expansion_replace_prefix_anchor() {
+    let mut lexer = Lexer::new(r#""${parameter/#pattern/string}""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::ParamExpansion);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("parameter".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("#".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("pattern".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("string".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
