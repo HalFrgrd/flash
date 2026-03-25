@@ -6,7 +6,7 @@
  */
 
 use flash::interpreter::{DefaultEvaluator, Evaluator, Interpreter};
-use flash::lexer::Lexer;
+use flash::lexer::{Lexer, TokenKind};
 use flash::parser::Parser;
 
 #[test]
@@ -148,17 +148,31 @@ fn test_debug_mode() {
 #[test]
 fn test_here_document_lexing() {
     // Test that here-document tokens are lexed correctly
-    let input = "cat << EOF\nhello\nEOF";
+    let input = "cat << HDDELIM\nhello\nHDDELIM";
     let mut lexer = Lexer::new(input);
 
     let token1 = lexer.next_token();
     assert_eq!(token1.value, "cat");
 
-    let token2 = lexer.next_token();
-    assert_eq!(token2.value, "<<");
+    // Skip whitespace
+    let _ = lexer.next_token();
 
+    let token2 = lexer.next_token();
+    match &token2.kind {
+        TokenKind::HereDoc(delim) => {
+            assert_eq!(delim, "HDDELIM");
+            assert_eq!(token2.value, "<<HDDELIM");
+        }
+        _ => panic!("Expected HereDoc token, got {:?}", token2.kind),
+    }
+    let _ = lexer.next_token(); // Skip the newline after the delimiter
     let token3 = lexer.next_token();
-    assert_eq!(token3.value, "EOF");
+    println!("Here-document content: {:?}", token3);
+
+    let _ = lexer.next_token();
+    let token4 = lexer.next_token();
+    println!("Here-document closing token: {:?}", token4);
+    assert_eq!(token4.value, "HDDELIM");
 }
 
 #[test]
@@ -170,8 +184,14 @@ fn test_here_string_lexing() {
     let token1 = lexer.next_token();
     assert_eq!(token1.value, "cat");
 
+    // Skip whitespace
+    let _ = lexer.next_token();
+
     let token2 = lexer.next_token();
     assert_eq!(token2.value, "<<<");
+
+    // Skip whitespace
+    let _ = lexer.next_token();
 
     let token3 = lexer.next_token();
     assert_eq!(token3.value, "hello");
@@ -205,11 +225,17 @@ fn test_process_substitution_lexing() {
     let token2 = lexer.next_token();
     assert_eq!(token2.value, "echo");
 
+    // Skip whitespace
+    let _ = lexer.next_token();
+
     let token3 = lexer.next_token();
     assert_eq!(token3.value, "hello");
 
     let token4 = lexer.next_token();
     assert_eq!(token4.value, ")");
+
+    // Skip whitespace
+    let _ = lexer.next_token();
 
     let token5 = lexer.next_token();
     assert_eq!(token5.value, ">(");
