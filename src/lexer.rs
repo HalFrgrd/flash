@@ -182,6 +182,7 @@ pub struct Lexer {
     quote_after_backtick: Option<char>,
     in_extglob: bool,
     param_expansion_depth: usize,
+    after_dollar: bool,
 }
 
 impl Lexer {
@@ -200,6 +201,7 @@ impl Lexer {
             quote_after_backtick: None,
             in_extglob: false,
             param_expansion_depth: 0,
+            after_dollar: false,
         };
         lexer.read_char();
         lexer
@@ -246,6 +248,7 @@ impl Lexer {
         let saved_line = self.line;
         let saved_column = self.column;
         let saved_param_expansion_depth = self.param_expansion_depth;
+        let saved_after_dollar = self.after_dollar;
 
         // Get the next token
         let mut token = self.next_token();
@@ -260,6 +263,7 @@ impl Lexer {
         self.line = saved_line;
         self.column = saved_column;
         self.param_expansion_depth = saved_param_expansion_depth;
+        self.after_dollar = saved_after_dollar;
 
         token
     }
@@ -384,6 +388,7 @@ impl Lexer {
                 } else {
                     // Simple variable expansion $VAR
                     self.read_char(); // Advance past '$' to the variable name
+                    self.after_dollar = true;
                     return Token {
                         kind: TokenKind::Dollar,
                         value: "$".to_string(),
@@ -400,9 +405,25 @@ impl Lexer {
                     value: "`".to_string(),
                     position: current_position,
                 };
+            } else if self.after_dollar && (self.ch.is_ascii_alphabetic() || self.ch == '_') {
+                // After a $ in double-quoted context, read only a valid variable name
+                self.after_dollar = false;
+                let token = self.read_var_name();
+                self.read_char();
+                return token;
             } else {
+                self.after_dollar = false;
                 // Regular quoted content
                 return self.read_quoted_content();
+            }
+        }
+
+        if self.after_dollar {
+            self.after_dollar = false;
+            if self.ch.is_ascii_alphabetic() || self.ch == '_' {
+                let token = self.read_var_name();
+                self.read_char();
+                return token;
             }
         }
 
@@ -763,6 +784,7 @@ impl Lexer {
                         position: current_position,
                     }
                 } else {
+                    self.after_dollar = true;
                     Token {
                         kind: TokenKind::Dollar,
                         value: "$".to_string(),
@@ -1424,6 +1446,29 @@ impl Lexer {
         Token {
             kind: token_kind,
             value: word,
+            position,
+        }
+    }
+
+    fn read_var_name(&mut self) -> Token {
+        let position = Position::new(self.line, self.column, self.current_byte_offset());
+        let mut name = String::new();
+
+        while self.ch.is_ascii_alphanumeric() || self.ch == '_' {
+            name.push(self.ch);
+            self.read_char();
+        }
+
+        // Step back one character (same pattern as read_word)
+        if self.position > 0 {
+            self.position -= 1;
+            self.read_position -= 1;
+            self.column -= 1;
+        }
+
+        Token {
+            kind: TokenKind::Word(name.clone()),
+            value: name,
             position,
         }
     }

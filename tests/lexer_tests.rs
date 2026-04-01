@@ -1055,3 +1055,37 @@ fn test_param_expansion_anchored_prefix_substitution_double_quoted() {
     assert_eq!(lexer.next_token().kind, TokenKind::Quote);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
+
+#[test]
+fn test_dollar_env_var_path() {
+    // $HOME/foo should lex as three tokens: $, HOME, /foo
+    let mut lexer = Lexer::new("$HOME/foo");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("HOME".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("/foo".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_dollar_env_var_dot() {
+    // $HOME.FOO should lex as three tokens: $, HOME, .FOO
+    let mut lexer = Lexer::new("$HOME.FOO");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("HOME".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(".FOO".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
