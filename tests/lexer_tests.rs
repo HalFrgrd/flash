@@ -202,12 +202,12 @@ fn test_lexer_keywords() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(lexer.next_token().kind, TokenKind::Do);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("do".to_string()));
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(lexer.next_token().kind, TokenKind::Done);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("done".to_string()));
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
@@ -235,6 +235,52 @@ fn test_do_is_word_outside_loop_header() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::Word("do".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_do_is_keyword_in_loop_header() {
+    let mut lexer = Lexer::new("for i in 1; do echo $i; done");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::For);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("i".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::In);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Semicolon);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Do);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("i".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Semicolon);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Done);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
