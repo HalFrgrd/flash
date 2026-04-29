@@ -761,7 +761,7 @@ impl Formatter {
 }
 
 #[cfg(test)]
-#[cfg(any())]  // This disables all tests in this module
+#[cfg(any())] // This disables all tests in this module
 mod tests {
     use crate::formatter::{Formatter, FormatterConfig, ShellVariant};
     use crate::parser::{Node, Redirect, RedirectKind};

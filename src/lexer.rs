@@ -186,6 +186,10 @@ pub struct Lexer {
     pending_loop_headers: usize,
     active_loop_bodies: usize,
     last_significant_token: Option<SignificantToken>,
+    assignment_prefix_active: bool,
+    expecting_assignment_value: bool,
+    at_word_boundary: bool,
+    just_read_assignment_name: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -215,6 +219,10 @@ impl Lexer {
             pending_loop_headers: 0,
             active_loop_bodies: 0,
             last_significant_token: None,
+            assignment_prefix_active: true,
+            expecting_assignment_value: false,
+            at_word_boundary: true,
+            just_read_assignment_name: false,
         };
         lexer.read_char();
         lexer
@@ -280,6 +288,10 @@ impl Lexer {
         let saved_pending_loop_headers = self.pending_loop_headers;
         let saved_active_loop_bodies = self.active_loop_bodies;
         let saved_last_significant_token = self.last_significant_token;
+        let saved_assignment_prefix_active = self.assignment_prefix_active;
+        let saved_expecting_assignment_value = self.expecting_assignment_value;
+        let saved_at_word_boundary = self.at_word_boundary;
+        let saved_just_read_assignment_name = self.just_read_assignment_name;
 
         // Get the next token
         let mut token = self.next_token();
@@ -298,6 +310,10 @@ impl Lexer {
         self.pending_loop_headers = saved_pending_loop_headers;
         self.active_loop_bodies = saved_active_loop_bodies;
         self.last_significant_token = saved_last_significant_token;
+        self.assignment_prefix_active = saved_assignment_prefix_active;
+        self.expecting_assignment_value = saved_expecting_assignment_value;
+        self.at_word_boundary = saved_at_word_boundary;
+        self.just_read_assignment_name = saved_just_read_assignment_name;
 
         token
     }
@@ -305,7 +321,9 @@ impl Lexer {
     pub fn next_token(&mut self) -> Token {
         if self.in_extglob {
             if self.ch.is_whitespace() && self.ch != '\n' {
-                return self.read_whitespace();
+                let token = self.read_whitespace();
+                self.update_assignment_state(&token.kind);
+                return token;
             }
 
             let current_position =
@@ -337,7 +355,9 @@ impl Lexer {
         }
 
         if self.in_quotes.is_none() && self.ch.is_whitespace() && self.ch != '\n' {
-            return self.read_whitespace();
+            let token = self.read_whitespace();
+            self.update_assignment_state(&token.kind);
+            return token;
         }
 
         let current_position = Position::new(self.line, self.column, self.current_byte_offset());
@@ -576,13 +596,11 @@ impl Lexer {
                     position: current_position,
                 }
             }
-            '{' => {
-                Token {
-                    kind: TokenKind::LBrace,
-                    value: "{".to_string(),
-                    position: current_position,
-                }
-            }
+            '{' => Token {
+                kind: TokenKind::LBrace,
+                value: "{".to_string(),
+                position: current_position,
+            },
             '}' => {
                 if let Some(quote_char) = self.quote_after_param_expansion {
                     self.in_quotes = Some(quote_char);
@@ -1338,6 +1356,7 @@ impl Lexer {
         };
 
         self.update_control_flow_state(&token.kind);
+        self.update_assignment_state(&token.kind);
 
         if token.kind != TokenKind::Word(String::new()) {
             self.read_char();
@@ -1400,6 +1419,61 @@ impl Lexer {
         }
     }
 
+    fn update_assignment_state(&mut self, token_kind: &TokenKind) {
+        match token_kind {
+            TokenKind::Whitespace(_) | TokenKind::Comment => {
+                if self.expecting_assignment_value {
+                    self.expecting_assignment_value = false;
+                }
+                self.at_word_boundary = true;
+                self.just_read_assignment_name = false;
+            }
+            TokenKind::EOF => {}
+            TokenKind::Assignment => {
+                self.expecting_assignment_value = true;
+                self.at_word_boundary = false;
+                self.just_read_assignment_name = false;
+            }
+            TokenKind::Semicolon
+            | TokenKind::DoubleSemicolon
+            | TokenKind::Newline
+            | TokenKind::Pipe
+            | TokenKind::And
+            | TokenKind::Or
+            | TokenKind::Background => {
+                self.assignment_prefix_active = true;
+                self.expecting_assignment_value = false;
+                self.at_word_boundary = true;
+                self.just_read_assignment_name = false;
+            }
+            TokenKind::If
+            | TokenKind::Then
+            | TokenKind::Elif
+            | TokenKind::Else
+            | TokenKind::Do
+            | TokenKind::While
+            | TokenKind::Until
+            | TokenKind::LParen
+            | TokenKind::ArithCommand
+            | TokenKind::Export => {
+                self.assignment_prefix_active = true;
+                self.expecting_assignment_value = false;
+                self.at_word_boundary = !matches!(token_kind, TokenKind::Export);
+                self.just_read_assignment_name = false;
+            }
+            _ => {
+                if !self.expecting_assignment_value
+                    && self.assignment_prefix_active
+                    && !self.just_read_assignment_name
+                {
+                    self.assignment_prefix_active = false;
+                }
+                self.at_word_boundary = false;
+                self.just_read_assignment_name = false;
+            }
+        }
+    }
+
     fn read_word(&mut self) -> Token {
         let position = Position::new(self.line, self.column, self.current_byte_offset());
         let mut word = String::new();
@@ -1407,17 +1481,19 @@ impl Lexer {
         // Read word characters, including glob patterns but handling braces carefully
         while !self.ch.is_whitespace() && self.ch != '\0' {
             // Handle special case for '=' in command line arguments first
-            if self.ch == '=' && word.starts_with('-') {
-                // For command line arguments like --option=value, include the = as part of the word
-                word.push(self.ch);
-                self.read_char();
-
-                // Continue reading the value part
-                while !self.ch.is_whitespace() && self.ch != '\0' && !is_word_terminator(self.ch) {
+            if self.ch == '=' {
+                if word.starts_with('-')
+                    || !self.assignment_prefix_active
+                    || !self.at_word_boundary
+                    || word.is_empty()
+                {
                     word.push(self.ch);
                     self.read_char();
+                    continue;
                 }
-                break; // Exit the main loop after handling the argument
+
+                self.just_read_assignment_name = true;
+                break;
             }
             // Check for other word terminators
             else if is_word_terminator(self.ch) {
@@ -2239,6 +2315,31 @@ mod lexer_tests {
     }
 
     #[test]
+    fn test_assignment_after_command_is_plain_word() {
+        let input = "echo foo=";
+        let expected = vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Word("foo=".to_string()),
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_multiple_leading_assignments_before_command() {
+        let input = "FOO=1 BAR=2 echo";
+        let expected = vec![
+            TokenKind::Word("FOO".to_string()),
+            TokenKind::Assignment,
+            TokenKind::Word("1".to_string()),
+            TokenKind::Word("BAR".to_string()),
+            TokenKind::Assignment,
+            TokenKind::Word("2".to_string()),
+            TokenKind::Word("echo".to_string()),
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
     fn test_redirections() {
         let input = "ls > output.txt 2>&1";
         let expected = vec![
@@ -2712,9 +2813,7 @@ mod lexer_tests {
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Word("echo".to_string()),
-            TokenKind::Word("then_var".to_string()),
-            TokenKind::Assignment,
-            TokenKind::Word("42".to_string()),
+            TokenKind::Word("then_var=42".to_string()),
             TokenKind::Semicolon,
             TokenKind::Fi,
         ];
