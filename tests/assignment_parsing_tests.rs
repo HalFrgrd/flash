@@ -57,7 +57,10 @@ fn leading_assignments_are_kept_before_command() {
     let ast = parse_script("FOO=1 BAR=2 echo");
 
     match ast {
-        Node::List { statements, operators } => {
+        Node::List {
+            statements,
+            operators,
+        } => {
             assert_eq!(operators, vec!["".to_string(), "".to_string()]);
             assert_eq!(statements.len(), 3);
 
