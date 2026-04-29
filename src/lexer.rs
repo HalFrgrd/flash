@@ -247,6 +247,21 @@ impl Lexer {
             .sum()
     }
 
+    fn has_character_class_closing_bracket(&self) -> bool {
+        let mut index = self.read_position;
+        while index < self.input.len() {
+            let ch = self.input[index];
+            if ch == ']' {
+                return true;
+            }
+            if ch.is_whitespace() {
+                return false;
+            }
+            index += 1;
+        }
+        false
+    }
+
     // check if the current position is followed by whitespace or a special character
     fn is_word_boundary(&self) -> bool {
         let peek = self.peek_char();
@@ -772,6 +787,9 @@ impl Lexer {
                     // Look ahead to see if it's $(( for arithmetic expansion
                     if self.position + 2 < self.input.len() && self.input[self.position + 2] == '('
                     {
+                        if self.quote_after_cmdsubst.is_some() {
+                            self.quote_after_cmdsubst_depth += 2;
+                        }
                         self.read_char(); // Consume first '('
                         self.read_char(); // Consume second '('
                         Token {
@@ -781,6 +799,9 @@ impl Lexer {
                         }
                     } else {
                         // Regular command substitution $(
+                        if self.quote_after_cmdsubst.is_some() {
+                            self.quote_after_cmdsubst_depth += 1;
+                        }
                         self.read_char(); // Consume the '('
                         Token {
                             kind: TokenKind::CmdSubst,
@@ -1432,6 +1453,12 @@ impl Lexer {
             }
             // Handle character classes
             else if self.ch == '[' {
+                if !self.has_character_class_closing_bracket() {
+                    word.push(self.ch);
+                    self.read_char();
+                    continue;
+                }
+
                 word.push(self.ch);
                 self.read_char();
 
@@ -1442,7 +1469,7 @@ impl Lexer {
                 }
 
                 // Read until closing bracket
-                while self.ch != ']' && self.ch != '\0' && !self.ch.is_whitespace() && !is_word_terminator(self.ch) {
+                while self.ch != ']' && self.ch != '\0' && !self.ch.is_whitespace() {
                     word.push(self.ch);
                     self.read_char();
                 }
