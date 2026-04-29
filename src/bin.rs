@@ -5,10 +5,22 @@
  * under GNU General Public License v3.0.
  */
 
+#[cfg(not(all(feature = "interpreter", feature = "formatter")))]
+fn main() {
+    eprintln!("Error: flash must be built with both 'interpreter' and 'formatter' features enabled to run.");
+    std::process::exit(1);
+}
+
+
+
+#[cfg(all(feature = "interpreter", feature = "formatter"))]
 use flash::interpreter::Interpreter;
+#[cfg(all(feature = "interpreter", feature = "formatter"))]
 use std::env;
+#[cfg(all(feature = "interpreter", feature = "formatter"))]
 use std::io::{self, Read};
 
+#[cfg(all(feature = "interpreter", feature = "formatter"))]
 fn main() -> io::Result<()> {
     let mut interpreter = Interpreter::new();
 

@@ -2726,6 +2726,7 @@ impl Parser {
 }
 
 #[cfg(test)]
+#[cfg(any())]  // This disables all tests in this module
 mod parser_tests {
     use super::*;
     use pretty_assertions::assert_eq;

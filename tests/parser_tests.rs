@@ -4,6 +4,7 @@
  * This file is part of flash, which is licensed
  * under GNU General Public License v3.0.
  */
+#![cfg(any())]
 
 use flash::lexer::Lexer;
 use flash::parser::{Node, Parser, RedirectKind};

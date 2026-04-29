@@ -4,6 +4,7 @@
  * This file is part of flash, which is licensed
  * under GNU General Public License v3.0.
  */
+#![cfg(all(feature = "interpreter", feature = "formatter"))]
 
 use flash::interpreter::{DefaultEvaluator, Evaluator, Interpreter};
 use flash::lexer::Lexer;
