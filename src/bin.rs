@@ -7,11 +7,11 @@
 
 #[cfg(not(all(feature = "interpreter", feature = "formatter")))]
 fn main() {
-    eprintln!(
-        "Error: flash must be built with both 'interpreter' and 'formatter' features enabled to run."
-    );
+    eprintln!("Error: flash must be built with both 'interpreter' and 'formatter' features enabled to run.");
     std::process::exit(1);
 }
+
+
 
 #[cfg(all(feature = "interpreter", feature = "formatter"))]
 use flash::interpreter::Interpreter;

@@ -596,11 +596,13 @@ impl Lexer {
                     position: current_position,
                 }
             }
-            '{' => Token {
-                kind: TokenKind::LBrace,
-                value: "{".to_string(),
-                position: current_position,
-            },
+            '{' => {
+                Token {
+                    kind: TokenKind::LBrace,
+                    value: "{".to_string(),
+                    position: current_position,
+                }
+            }
             '}' => {
                 if let Some(quote_char) = self.quote_after_param_expansion {
                     self.in_quotes = Some(quote_char);
@@ -1496,12 +1498,9 @@ impl Lexer {
                 break;
             }
             // Check for other word terminators
-            else if is_word_terminator(self.ch) {
-                break;
-            }
-            // Inside ${...}, % and / are operators that terminate the current word.
-            // Note: # is already covered by is_word_terminator() above.
-            else if self.param_expansion_depth > 0 && matches!(self.ch, '%' | '/') {
+            else if is_word_terminator(self.ch)
+                || (self.param_expansion_depth > 0 && matches!(self.ch, '%' | '/'))
+            {
                 break;
             }
             // Handle brace expansion - check if this looks like a glob pattern

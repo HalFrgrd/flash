@@ -719,10 +719,7 @@ fn test_lexer_glob_patterns() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::LBrace);
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word("1,2,3".to_string())
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1,2,3".to_string()));
     assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
 }
 #[test]
@@ -1128,7 +1125,10 @@ fn test_single_quote_no_expansion() {
     let mut lexer = Lexer::new(r#"'$FOO'"#);
 
     assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("$FOO".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("$FOO".to_string())
+    );
     assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
@@ -1335,8 +1335,14 @@ fn test_dollar_env_var_path() {
     let mut lexer = Lexer::new("$HOME/foo");
 
     assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("HOME".to_string()));
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("/foo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("HOME".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("/foo".to_string())
+    );
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
@@ -1346,7 +1352,13 @@ fn test_dollar_env_var_dot() {
     let mut lexer = Lexer::new("$HOME.FOO");
 
     assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("HOME".to_string()));
-    assert_eq!(lexer.next_token().kind, TokenKind::Word(".FOO".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("HOME".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(".FOO".to_string())
+    );
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
