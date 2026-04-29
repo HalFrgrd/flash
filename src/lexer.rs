@@ -562,15 +562,10 @@ impl Lexer {
                 }
             }
             '{' => {
-                // Check if this looks like brace expansion (e.g., {1..10}, {a..z})
-                if self.is_brace_expansion() {
-                    self.read_word()
-                } else {
-                    Token {
-                        kind: TokenKind::LBrace,
-                        value: "{".to_string(),
-                        position: current_position,
-                    }
+                Token {
+                    kind: TokenKind::LBrace,
+                    value: "{".to_string(),
+                    position: current_position,
                 }
             }
             '}' => {
@@ -1601,52 +1596,6 @@ impl Lexer {
             value: whitespace,
             position,
         }
-    }
-
-    // Check if the current position starts a brace expansion pattern like {1..10} or {a..z}
-    fn is_brace_expansion(&self) -> bool {
-        if self.ch != '{' {
-            return false;
-        }
-
-        // Look ahead to see if this matches a brace expansion pattern
-        let mut pos = self.position + 1;
-        let mut found_dots = false;
-        let mut found_comma = false;
-        let mut brace_count = 1;
-        let mut in_quotes = false;
-        let mut quote_char = '\0';
-
-        while pos < self.input.len() && brace_count > 0 {
-            let ch = self.input[pos];
-
-            // Handle quotes - don't count commas inside quotes
-            if !in_quotes && (ch == '"' || ch == '\'') {
-                in_quotes = true;
-                quote_char = ch;
-            } else if in_quotes && ch == quote_char {
-                in_quotes = false;
-            } else if !in_quotes {
-                match ch {
-                    '{' => brace_count += 1,
-                    '}' => brace_count -= 1,
-                    '.' if pos + 1 < self.input.len() && self.input[pos + 1] == '.' => {
-                        found_dots = true;
-                        pos += 1; // Skip the second dot
-                    }
-                    ',' => found_comma = true,
-                    // If we find certain characters that indicate this is likely a command block,
-                    // not a brace expansion, return false early
-                    ';' | '\n' | '|' | '&' => return false,
-                    _ => {}
-                }
-            }
-            pos += 1;
-        }
-
-        // It's a brace expansion if we found ".." or "," and the braces are balanced
-        // and we didn't find command-like syntax
-        (found_dots || found_comma) && brace_count == 0
     }
 
     fn read_comment(&mut self) -> Token {

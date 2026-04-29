@@ -354,6 +354,20 @@ fn test_lexer_braces() {
 }
 
 #[test]
+fn test_lexer_comma_brace_expansion_tokens() {
+    let mut lexer = Lexer::new("echo {1,2}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::LBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1,2".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+}
+
+#[test]
 fn test_lexer_parentheses() {
     let mut lexer = Lexer::new("(echo hello)");
 
@@ -669,10 +683,9 @@ fn test_lexer_glob_patterns() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word("{1,2,3}".to_string())
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::LBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1,2,3".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
 }
 #[test]
 fn test_arith_command_token() {
