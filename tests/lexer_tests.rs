@@ -226,6 +226,19 @@ fn test_lexer_keywords() {
 }
 
 #[test]
+fn test_do_is_word_outside_loop_header() {
+    let mut lexer = Lexer::new("cd do");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("cd".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("do".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
 fn test_lexer_comments() {
     let mut lexer = Lexer::new("echo hello # this is a comment\necho world");
 

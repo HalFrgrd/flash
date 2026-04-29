@@ -183,6 +183,16 @@ pub struct Lexer {
     in_extglob: bool,
     param_expansion_depth: usize,
     after_dollar: bool,
+    pending_loop_headers: usize,
+    active_loop_bodies: usize,
+    last_significant_token: Option<SignificantToken>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SignificantToken {
+    Semicolon,
+    Newline,
+    Other,
 }
 
 impl Lexer {
@@ -202,6 +212,9 @@ impl Lexer {
             in_extglob: false,
             param_expansion_depth: 0,
             after_dollar: false,
+            pending_loop_headers: 0,
+            active_loop_bodies: 0,
+            last_significant_token: None,
         };
         lexer.read_char();
         lexer
@@ -249,6 +262,9 @@ impl Lexer {
         let saved_column = self.column;
         let saved_param_expansion_depth = self.param_expansion_depth;
         let saved_after_dollar = self.after_dollar;
+        let saved_pending_loop_headers = self.pending_loop_headers;
+        let saved_active_loop_bodies = self.active_loop_bodies;
+        let saved_last_significant_token = self.last_significant_token;
 
         // Get the next token
         let mut token = self.next_token();
@@ -264,6 +280,9 @@ impl Lexer {
         self.column = saved_column;
         self.param_expansion_depth = saved_param_expansion_depth;
         self.after_dollar = saved_after_dollar;
+        self.pending_loop_headers = saved_pending_loop_headers;
+        self.active_loop_bodies = saved_active_loop_bodies;
+        self.last_significant_token = saved_last_significant_token;
 
         token
     }
@@ -1157,7 +1176,7 @@ impl Lexer {
 
                         if self.is_word_boundary() {
                             Token {
-                                kind: TokenKind::Done,
+                                kind: self.classify_done_keyword(),
                                 value: "done".to_string(),
                                 position: current_position,
                             }
@@ -1171,7 +1190,7 @@ impl Lexer {
                         }
                     } else if self.is_word_boundary() {
                         Token {
-                            kind: TokenKind::Do,
+                            kind: self.classify_do_keyword(),
                             value: "do".to_string(),
                             position: current_position,
                         }
@@ -1302,11 +1321,67 @@ impl Lexer {
             _ => self.read_word(),
         };
 
+        self.update_control_flow_state(&token.kind);
+
         if token.kind != TokenKind::Word(String::new()) {
             self.read_char();
         }
 
         token
+    }
+
+    fn classify_do_keyword(&self) -> TokenKind {
+        if self.pending_loop_headers > 0
+            && matches!(
+                self.last_significant_token,
+                Some(SignificantToken::Semicolon | SignificantToken::Newline)
+            )
+        {
+            TokenKind::Do
+        } else {
+            TokenKind::Word("do".to_string())
+        }
+    }
+
+    fn classify_done_keyword(&self) -> TokenKind {
+        if self.active_loop_bodies > 0
+            && matches!(
+                self.last_significant_token,
+                Some(SignificantToken::Semicolon | SignificantToken::Newline)
+            )
+        {
+            TokenKind::Done
+        } else {
+            TokenKind::Word("done".to_string())
+        }
+    }
+
+    fn update_control_flow_state(&mut self, token_kind: &TokenKind) {
+        match token_kind {
+            TokenKind::For | TokenKind::While | TokenKind::Until => {
+                self.pending_loop_headers += 1;
+                self.last_significant_token = Some(SignificantToken::Other);
+            }
+            TokenKind::Do => {
+                self.pending_loop_headers = self.pending_loop_headers.saturating_sub(1);
+                self.active_loop_bodies += 1;
+                self.last_significant_token = Some(SignificantToken::Other);
+            }
+            TokenKind::Done => {
+                self.active_loop_bodies = self.active_loop_bodies.saturating_sub(1);
+                self.last_significant_token = Some(SignificantToken::Other);
+            }
+            TokenKind::Semicolon => {
+                self.last_significant_token = Some(SignificantToken::Semicolon);
+            }
+            TokenKind::Newline => {
+                self.last_significant_token = Some(SignificantToken::Newline);
+            }
+            TokenKind::Whitespace(_) | TokenKind::Comment | TokenKind::EOF => {}
+            _ => {
+                self.last_significant_token = Some(SignificantToken::Other);
+            }
+        }
     }
 
     fn read_word(&mut self) -> Token {
@@ -1430,8 +1505,8 @@ impl Lexer {
             "for" => TokenKind::For,
             "while" => TokenKind::While,
             "until" => TokenKind::Until,
-            "do" => TokenKind::Do,
-            "done" => TokenKind::Done,
+            "do" => self.classify_do_keyword(),
+            "done" => self.classify_done_keyword(),
             "in" => TokenKind::In,
             "function" => TokenKind::Function,
             "break" => TokenKind::Break,
