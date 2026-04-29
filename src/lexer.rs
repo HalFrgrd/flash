@@ -1460,6 +1460,8 @@ impl Lexer {
             | TokenKind::Export => {
                 self.assignment_prefix_active = true;
                 self.expecting_assignment_value = false;
+                // `export` still needs a separating space before the following name,
+                // while the other tokens here immediately open a fresh command context.
                 self.at_word_boundary = !matches!(token_kind, TokenKind::Export);
                 self.just_read_assignment_name = false;
             }
@@ -1482,7 +1484,9 @@ impl Lexer {
 
         // Read word characters, including glob patterns but handling braces carefully
         while !self.ch.is_whitespace() && self.ch != '\0' {
-            // Handle special case for '=' in command line arguments first
+            // Treat `=` as an assignment operator only for a shell word that starts
+            // a command (or continues a leading assignment prefix); otherwise keep
+            // it inside the word, such as in `echo foo=` or `--flag=value`.
             if self.ch == '=' {
                 if word.starts_with('-')
                     || !self.assignment_prefix_active
