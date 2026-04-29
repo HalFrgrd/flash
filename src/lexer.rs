@@ -4009,7 +4009,7 @@ mod lexer_tests {
             TokenKind::Word("echo".to_string()),
             TokenKind::Whitespace(" ".to_string()),
             TokenKind::Quote,
-            TokenKind::Word("".to_string()),
+            TokenKind::EOF,
         ];
         test_tokens_include_whitespace(input, expected);
     }
