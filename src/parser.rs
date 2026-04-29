@@ -218,6 +218,37 @@ impl Parser {
         }
     }
 
+    fn tokens_are_adjacent(left: &Token, right: &Token) -> bool {
+        left.byte_range().end == right.position.byte
+    }
+
+    fn parse_equals_argument(&mut self) -> String {
+        let mut argument = match &self.current_token.kind {
+            TokenKind::Word(word) => word.clone(),
+            _ => String::new(),
+        };
+        let mut last_end = self.current_token.byte_range().end;
+        self.next_token();
+
+        while self.current_token.position.byte == last_end {
+            match &self.current_token.kind {
+                TokenKind::Assignment => {
+                    argument.push('=');
+                    last_end = self.current_token.byte_range().end;
+                    self.next_token();
+                }
+                TokenKind::Word(word) => {
+                    argument.push_str(word);
+                    last_end = self.current_token.byte_range().end;
+                    self.next_token();
+                }
+                _ => break,
+            }
+        }
+
+        argument
+    }
+
     // Function definition: name() { ... }
     fn parse_function_definition(&mut self) -> Node {
         // Get function name
@@ -1641,10 +1672,15 @@ impl Parser {
                         self.next_token(); // Skip the "]"
                         break;
                     }
-                    // Check if this word is a variable reference (starts with $)
-                    // and keep it as a single token
-                    args.push(word.clone());
-                    self.next_token();
+
+                    if self.peek_token.kind == TokenKind::Assignment
+                        && Self::tokens_are_adjacent(&self.current_token, &self.peek_token)
+                    {
+                        args.push(self.parse_equals_argument());
+                    } else {
+                        args.push(word.clone());
+                        self.next_token();
+                    }
                 }
                 TokenKind::ArithSubst => {
                     // Handle arithmetic expansion like $((expr))
