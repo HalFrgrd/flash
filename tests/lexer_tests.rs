@@ -867,6 +867,172 @@ fn test_double_quote_cmd_substitution_with_text() {
 }
 
 #[test]
+fn test_double_quote_nested_cmd_substitution() {
+    let mut lexer = Lexer::new(r#"echo "$( foo1 $(bar) )" && baz"#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("foo1".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("bar".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::And);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("baz".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_nested_cmd_substitution_with_surrounding_text() {
+    let mut lexer = Lexer::new(r#"echo "prefix $( foo1 $(bar) ) suffix""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("prefix ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("foo1".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("bar".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(" suffix".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_nested_arith_substitution_in_cmd_substitution() {
+    let mut lexer = Lexer::new(r#"echo "$( foo1 $((1+2)) )" && baz"#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("foo1".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ArithSubst);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1+2".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::And);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("baz".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_double_quote_nested_arith_substitution_with_surrounding_text() {
+    let mut lexer = Lexer::new(r#"echo "prefix $( foo1 $((1+2)) ) suffix""#);
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("prefix ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::CmdSubst);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("foo1".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ArithSubst);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1+2".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word(" suffix".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
 fn test_double_quote_arith_substitution() {
     // "$((1 + 2))" - arithmetic substitution inside double quotes
     let mut lexer = Lexer::new(r#""$((1 + 2))""#);
