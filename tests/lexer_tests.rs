@@ -1723,3 +1723,31 @@ fn test_heredoc_token_values_reconstruct_input_dash_double_quoted() {
     let prefix = "cat <<-\"EOF\"";
     assert!(collect_token_values(input).starts_with(prefix));
 }
+
+#[test]
+fn test_heredoc_token_value_preserves_whitespace_between_operator_and_delimiter() {
+    // The lexer is permissive and accepts whitespace between `<<` (or
+    // `<<-`) and the delimiter word. Because `Token.value` must be a
+    // verbatim slice of the input, that whitespace has to appear in the
+    // token's `value` even though it is not part of the delimiter
+    // itself.
+    let (kind, value) = first_heredoc_token("cat << EOF\nbody\nEOF\n");
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: false,
+        }
+    );
+    assert_eq!(value, "<< EOF");
+
+    let (kind, value) = first_heredoc_token("cat <<-\tEOF\n\tbody\n\tEOF\n");
+    assert_eq!(
+        kind,
+        TokenKind::HereDocDash {
+            delimiter: "EOF".to_string(),
+            quoted: false,
+        }
+    );
+    assert_eq!(value, "<<-\tEOF");
+}
