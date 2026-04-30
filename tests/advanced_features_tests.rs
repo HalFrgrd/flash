@@ -159,9 +159,10 @@ fn test_here_document_lexing() {
 
     let token2 = lexer.next_token();
     match &token2.kind {
-        TokenKind::HereDoc(delim) => {
-            assert_eq!(delim, "HDDELIM");
-            assert_eq!(token2.value, "<<HDDELIM");
+        TokenKind::HereDoc { delimiter, quoted } => {
+            assert_eq!(delimiter, "HDDELIM");
+            assert!(!quoted);
+            assert_eq!(token2.value, "<< HDDELIM");
         }
         _ => panic!("Expected HereDoc token, got {:?}", token2.kind),
     }
