@@ -2040,3 +2040,222 @@ fn test_unquoted_heredoc_dash_body_lexes_expansions() {
         ],
     );
 }
+
+// -------------------------------------------------------------------------
+// Robustness tests for heredoc delimiter lexing.
+//
+// The heredoc delimiter "word" supports embedded quoted segments
+// (`<<'EOF'`, `<<EO'F'`, `<<"EOF"`, …). When such an embedded segment
+// has no matching close quote on the same word, the lexer must NOT
+// greedily swallow input that belongs to a separate, unclosed
+// quoted-string token following the heredoc operator. Otherwise the
+// rest of the script is silently absorbed into the heredoc operator's
+// raw value.
+//
+// These tests cover the primary problem case from the issue
+// (`<<'EOF''`) plus a few related shapes (double quotes, fully
+// unclosed quotes, unclosed quotes in the middle of the word).
+// -------------------------------------------------------------------------
+
+fn collect_all_tokens(input: &str) -> Vec<(TokenKind, String)> {
+    let mut lexer = Lexer::new(input);
+    let mut out = Vec::new();
+    loop {
+        let token = lexer.next_token();
+        let done = matches!(token.kind, TokenKind::EOF);
+        out.push((token.kind, token.value));
+        if done {
+            break;
+        }
+    }
+    out
+}
+
+#[test]
+fn test_heredoc_unmatched_trailing_single_quote_left_for_outer_lexer() {
+    // `<<'EOF''` — the third single quote has no matching closer on
+    // the delimiter word, so it must remain as a separate
+    // (unclosed) `SingleQuote` token after the heredoc operator. The
+    // heredoc operator's raw value must include only `<<'EOF'` and
+    // its delimiter must be `EOF`.
+    let tokens = collect_all_tokens("cat <<'EOF''\nfoo\nEOF\n");
+
+    let heredoc_idx = tokens
+        .iter()
+        .position(|(k, _)| matches!(k, TokenKind::HereDoc { .. }))
+        .expect("expected a HereDoc token");
+    let (heredoc_kind, heredoc_value) = &tokens[heredoc_idx];
+    assert_eq!(
+        heredoc_kind,
+        &TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        },
+    );
+    assert_eq!(heredoc_value, "<<'EOF'");
+
+    // The token immediately following the heredoc operator must be
+    // the unmatched single quote (NOT a Newline — that would mean
+    // the quote was swallowed into the operator).
+    let (next_kind, next_value) = &tokens[heredoc_idx + 1];
+    assert_eq!(next_kind, &TokenKind::SingleQuote);
+    assert_eq!(next_value, "'");
+}
+
+#[test]
+fn test_heredoc_unmatched_trailing_double_quote_left_for_outer_lexer() {
+    // `<<"EOF""` — analogous to the single-quoted case above.
+    let tokens = collect_all_tokens("cat <<\"EOF\"\"\nfoo\nEOF\n");
+
+    let heredoc_idx = tokens
+        .iter()
+        .position(|(k, _)| matches!(k, TokenKind::HereDoc { .. }))
+        .expect("expected a HereDoc token");
+    let (heredoc_kind, heredoc_value) = &tokens[heredoc_idx];
+    assert_eq!(
+        heredoc_kind,
+        &TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        },
+    );
+    assert_eq!(heredoc_value, "<<\"EOF\"");
+
+    let (next_kind, next_value) = &tokens[heredoc_idx + 1];
+    assert_eq!(next_kind, &TokenKind::Quote);
+    assert_eq!(next_value, "\"");
+}
+
+#[test]
+fn test_heredoc_fully_unclosed_single_quoted_delimiter() {
+    // `<<'EOF` — the only single quote in the delimiter has no
+    // matching closer at all. The opening quote must NOT be eaten
+    // by the heredoc operator: it has to remain as the start of an
+    // unclosed single-quoted string.
+    let tokens = collect_all_tokens("cat <<'EOF\nfoo\nEOF\n");
+
+    let heredoc_idx = tokens
+        .iter()
+        .position(|(k, _)| matches!(k, TokenKind::HereDoc { .. }))
+        .expect("expected a HereDoc token");
+    let (heredoc_kind, heredoc_value) = &tokens[heredoc_idx];
+    // Empty delimiter, not quoted, raw value is just `<<`.
+    assert_eq!(
+        heredoc_kind,
+        &TokenKind::HereDoc {
+            delimiter: String::new(),
+            quoted: false,
+        },
+    );
+    assert_eq!(heredoc_value, "<<");
+
+    let (next_kind, next_value) = &tokens[heredoc_idx + 1];
+    assert_eq!(next_kind, &TokenKind::SingleQuote);
+    assert_eq!(next_value, "'");
+}
+
+#[test]
+fn test_heredoc_fully_unclosed_double_quoted_delimiter() {
+    // `<<"EOF` — analogous to the single-quoted case above.
+    let tokens = collect_all_tokens("cat <<\"EOF\nfoo\nEOF\n");
+
+    let heredoc_idx = tokens
+        .iter()
+        .position(|(k, _)| matches!(k, TokenKind::HereDoc { .. }))
+        .expect("expected a HereDoc token");
+    let (heredoc_kind, heredoc_value) = &tokens[heredoc_idx];
+    assert_eq!(
+        heredoc_kind,
+        &TokenKind::HereDoc {
+            delimiter: String::new(),
+            quoted: false,
+        },
+    );
+    assert_eq!(heredoc_value, "<<");
+
+    let (next_kind, next_value) = &tokens[heredoc_idx + 1];
+    assert_eq!(next_kind, &TokenKind::Quote);
+    assert_eq!(next_value, "\"");
+}
+
+#[test]
+fn test_heredoc_unclosed_quote_mid_word_truncates_delimiter() {
+    // `<<EO'F` — `EO` is bare, then an unmatched `'` opens a
+    // quoted segment that is never closed. The delimiter must be
+    // truncated to `EO`, and the `'F` must remain for the outer
+    // lexer to handle.
+    let tokens = collect_all_tokens("cat <<EO'F\nfoo\nEOF\n");
+
+    let heredoc_idx = tokens
+        .iter()
+        .position(|(k, _)| matches!(k, TokenKind::HereDoc { .. }))
+        .expect("expected a HereDoc token");
+    let (heredoc_kind, heredoc_value) = &tokens[heredoc_idx];
+    assert_eq!(
+        heredoc_kind,
+        &TokenKind::HereDoc {
+            delimiter: "EO".to_string(),
+            quoted: false,
+        },
+    );
+    assert_eq!(heredoc_value, "<<EO");
+
+    let (next_kind, next_value) = &tokens[heredoc_idx + 1];
+    assert_eq!(next_kind, &TokenKind::SingleQuote);
+    assert_eq!(next_value, "'");
+}
+
+#[test]
+fn test_heredoc_dash_unmatched_trailing_single_quote_left_for_outer_lexer() {
+    // Same robustness check, but for the `<<-` (dash) variant.
+    let tokens = collect_all_tokens("cat <<-'EOF''\n\tfoo\n\tEOF\n");
+
+    let heredoc_idx = tokens
+        .iter()
+        .position(|(k, _)| matches!(k, TokenKind::HereDocDash { .. }))
+        .expect("expected a HereDocDash token");
+    let (heredoc_kind, heredoc_value) = &tokens[heredoc_idx];
+    assert_eq!(
+        heredoc_kind,
+        &TokenKind::HereDocDash {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        },
+    );
+    assert_eq!(heredoc_value, "<<-'EOF'");
+
+    let (next_kind, _) = &tokens[heredoc_idx + 1];
+    assert_eq!(next_kind, &TokenKind::SingleQuote);
+}
+
+#[test]
+fn test_heredoc_unmatched_trailing_quote_problem_statement_full_token_stream() {
+    // Verify the full token stream for the exact reproducer from the
+    // issue: after the heredoc operator, the third single quote
+    // opens an unclosed single-quoted string that absorbs the rest
+    // of the input (foo, newlines, EOF) — no closing `'` ever
+    // appears, so the lexer should still terminate cleanly at EOF.
+    let kinds: Vec<TokenKind> = collect_all_tokens("cat <<'EOF''\nfoo\nEOF\n")
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+
+    assert_eq!(
+        kinds,
+        vec![
+            TokenKind::Word("cat".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::HereDoc {
+                delimiter: "EOF".to_string(),
+                quoted: true,
+            },
+            TokenKind::SingleQuote,
+            TokenKind::Newline,
+            TokenKind::Word("foo".to_string()),
+            TokenKind::Newline,
+            TokenKind::Word("EOF".to_string()),
+            TokenKind::Newline,
+            TokenKind::EOF,
+        ],
+    );
+}

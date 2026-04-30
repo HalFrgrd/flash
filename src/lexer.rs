@@ -1945,6 +1945,43 @@ impl Lexer {
         tokens
     }
 
+    /// Check, without consuming any input, whether the quoted segment
+    /// that would be opened by the current character (`self.ch`, which
+    /// must be `'` or `"`) has a matching closing quote later in the
+    /// same heredoc-delimiter "word". A quoted segment ends at the
+    /// matching close quote; if none is found before a newline, EOF, or
+    /// (for the bare opener) any other terminator, the segment is
+    /// considered unmatched.
+    ///
+    /// This is used by `read_heredoc_delimiter` to avoid greedily
+    /// swallowing characters that belong to a separate, unclosed
+    /// quoted-string token following the heredoc operator.
+    fn heredoc_delim_has_matching_close(&self, quote_char: char) -> bool {
+        // Start scanning at the character after the opening quote.
+        let mut idx = self.read_position;
+        while idx < self.input.len() {
+            let c = self.input[idx];
+            // A newline always terminates the heredoc-delimiter word
+            // (and a quoted segment within it must close before then).
+            if c == '\n' {
+                return false;
+            }
+            if quote_char == '"' && c == '\\' {
+                // Inside a double-quoted segment, the next character is
+                // escaped (and therefore cannot itself close the
+                // segment). Skip it.
+                idx += 2;
+                continue;
+            }
+            if c == quote_char {
+                return true;
+            }
+            idx += 1;
+        }
+        // Reached end of input without finding the close quote.
+        false
+    }
+
     /// Read a heredoc delimiter "word" starting at `self.ch`.
     ///
     /// Returns `(delimiter, quoted)` where `delimiter` is the value of the
@@ -1964,7 +2001,15 @@ impl Lexer {
         while !self.ch.is_whitespace() && self.ch != '\0' {
             match self.ch {
                 '\'' => {
-                    // Single-quoted segment: literal until matching '
+                    // Single-quoted segment: literal until matching '.
+                    // Robustness: only enter the segment if a matching
+                    // close quote actually exists on the same word
+                    // (i.e. before any newline / EOF). Otherwise leave
+                    // the opening quote for the outer lexer to emit as
+                    // the start of an unclosed single-quoted string.
+                    if !self.heredoc_delim_has_matching_close('\'') {
+                        break;
+                    }
                     quoted = true;
                     raw.push(self.ch);
                     self.read_char();
@@ -1981,7 +2026,12 @@ impl Lexer {
                     }
                 }
                 '"' => {
-                    // Double-quoted segment: backslash escapes ", \, $, `
+                    // Double-quoted segment: backslash escapes ", \, $, `.
+                    // Robustness: only enter the segment if a matching
+                    // close quote actually exists on the same word.
+                    if !self.heredoc_delim_has_matching_close('"') {
+                        break;
+                    }
                     quoted = true;
                     raw.push(self.ch);
                     self.read_char();
