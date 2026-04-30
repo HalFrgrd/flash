@@ -397,6 +397,41 @@ fn test_lexer_assignment() {
 }
 
 #[test]
+fn test_assignment_after_command_is_plain_word() {
+    let mut lexer = Lexer::new("echo foo=");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("foo=".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_multiple_leading_assignments_before_command() {
+    let mut lexer = Lexer::new("FOO=1 BAR=2 echo");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("FOO".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Assignment);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("1".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("BAR".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Assignment);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("2".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
 fn test_lexer_extended_glob() {
     let mut lexer = Lexer::new("?(pattern) *(pattern) +(pattern) @(pattern) !(pattern)");
 
