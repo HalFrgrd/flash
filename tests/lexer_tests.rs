@@ -1450,7 +1450,7 @@ fn first_heredoc_token(input: &str) -> (TokenKind, String) {
     loop {
         let token = lexer.next_token();
         match &token.kind {
-            TokenKind::HereDoc(_) | TokenKind::HereDocDash(_) => {
+            TokenKind::HereDoc { .. } | TokenKind::HereDocDash { .. } => {
                 return (token.kind.clone(), token.value.clone());
             }
             TokenKind::EOF => panic!("no heredoc token in input: {:?}", input),
@@ -1462,7 +1462,13 @@ fn first_heredoc_token(input: &str) -> (TokenKind, String) {
 #[test]
 fn test_heredoc_unquoted_delimiter() {
     let (kind, value) = first_heredoc_token("cat <<EOF\nbody\nEOF\n");
-    assert_eq!(kind, TokenKind::HereDoc("EOF".to_string()));
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: false,
+        }
+    );
     assert_eq!(value, "<<EOF");
 }
 
@@ -1470,49 +1476,100 @@ fn test_heredoc_unquoted_delimiter() {
 fn test_heredoc_single_quoted_delimiter_strips_quotes() {
     // Per bash, the delimiter used for line matching is the result of
     // quote removal on `word`, so `<<'EOF'` matches a line containing
-    // just `EOF`.
-    let (kind, _) = first_heredoc_token("cat <<'EOF'\nbody\nEOF\n");
-    assert_eq!(kind, TokenKind::HereDoc("EOF".to_string()));
+    // just `EOF`. The `quoted` flag is true so the body is *not*
+    // expanded.
+    let (kind, value) = first_heredoc_token("cat <<'EOF'\nbody\nEOF\n");
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        }
+    );
+    // The token value is the verbatim slice of the input.
+    assert_eq!(value, "<<'EOF'");
 }
 
 #[test]
 fn test_heredoc_double_quoted_delimiter_strips_quotes() {
-    let (kind, _) = first_heredoc_token("cat <<\"EOF\"\nbody\nEOF\n");
-    assert_eq!(kind, TokenKind::HereDoc("EOF".to_string()));
+    let (kind, value) = first_heredoc_token("cat <<\"EOF\"\nbody\nEOF\n");
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        }
+    );
+    assert_eq!(value, "<<\"EOF\"");
 }
 
 #[test]
 fn test_heredoc_backslash_escaped_delimiter() {
     // `<<\EOF` is equivalent to `<<'EOF'` after quote removal.
-    let (kind, _) = first_heredoc_token("cat <<\\EOF\nbody\nEOF\n");
-    assert_eq!(kind, TokenKind::HereDoc("EOF".to_string()));
+    let (kind, value) = first_heredoc_token("cat <<\\EOF\nbody\nEOF\n");
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        }
+    );
+    assert_eq!(value, "<<\\EOF");
 }
 
 #[test]
 fn test_heredoc_partially_quoted_delimiter() {
-    // The delimiter `EO'F'` after quote removal is `EOF`.
-    let (kind, _) = first_heredoc_token("cat <<EO'F'\nbody\nEOF\n");
-    assert_eq!(kind, TokenKind::HereDoc("EOF".to_string()));
+    // The delimiter `EO'F'` after quote removal is `EOF`, and because
+    // some part of the word was quoted the body should not be expanded.
+    let (kind, value) = first_heredoc_token("cat <<EO'F'\nbody\nEOF\n");
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        }
+    );
+    assert_eq!(value, "<<EO'F'");
 }
 
 #[test]
 fn test_heredoc_dash_unquoted_delimiter() {
     let (kind, value) = first_heredoc_token("cat <<-EOF\n\tbody\n\tEOF\n");
-    assert_eq!(kind, TokenKind::HereDocDash("EOF".to_string()));
+    assert_eq!(
+        kind,
+        TokenKind::HereDocDash {
+            delimiter: "EOF".to_string(),
+            quoted: false,
+        }
+    );
     assert_eq!(value, "<<-EOF");
 }
 
 #[test]
 fn test_heredoc_dash_single_quoted_delimiter_strips_quotes() {
-    let (kind, _) = first_heredoc_token("cat <<-'EOF'\n\tbody\n\tEOF\n");
-    assert_eq!(kind, TokenKind::HereDocDash("EOF".to_string()));
+    let (kind, value) = first_heredoc_token("cat <<-'EOF'\n\tbody\n\tEOF\n");
+    assert_eq!(
+        kind,
+        TokenKind::HereDocDash {
+            delimiter: "EOF".to_string(),
+            quoted: true,
+        }
+    );
+    assert_eq!(value, "<<-'EOF'");
 }
 
 #[test]
 fn test_heredoc_delimiter_with_special_chars_preserved() {
-    // No quoting -> delimiter is the literal word as-is.
+    // No quoting -> delimiter is the literal word as-is and `quoted`
+    // remains false (body should be expanded).
     let (kind, _) = first_heredoc_token("cat <<END_OF_FILE\nbody\nEND_OF_FILE\n");
-    assert_eq!(kind, TokenKind::HereDoc("END_OF_FILE".to_string()));
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "END_OF_FILE".to_string(),
+            quoted: false,
+        }
+    );
 }
 
 #[test]
@@ -1520,7 +1577,13 @@ fn test_heredoc_delimiter_quoted_with_inner_special_chars() {
     // Quoted delimiter may legitimately contain characters that would
     // normally be operators; quote removal yields just the inner text.
     let (kind, _) = first_heredoc_token("cat <<'E$F'\nbody\nE$F\n");
-    assert_eq!(kind, TokenKind::HereDoc("E$F".to_string()));
+    assert_eq!(
+        kind,
+        TokenKind::HereDoc {
+            delimiter: "E$F".to_string(),
+            quoted: true,
+        }
+    );
 }
 
 #[test]
@@ -1534,9 +1597,129 @@ fn test_heredoc_followed_by_command_terminator() {
     assert!(matches!(lexer.next_token().kind, TokenKind::Whitespace(_)));
     // <<EOF
     let hdtok = lexer.next_token();
-    assert_eq!(hdtok.kind, TokenKind::HereDoc("EOF".to_string()));
+    assert_eq!(
+        hdtok.kind,
+        TokenKind::HereDoc {
+            delimiter: "EOF".to_string(),
+            quoted: false,
+        }
+    );
     // ' '
     assert!(matches!(lexer.next_token().kind, TokenKind::Whitespace(_)));
     // arg
     assert_eq!(lexer.next_token().kind, TokenKind::Word("arg".to_string()));
+}
+
+// -------------------------------------------------------------------------
+// `quoted` flag: whether or not the heredoc body should be expanded.
+//
+// In bash, if any part of `word` in `<<word` (or `<<-word`) is quoted —
+// using single quotes, double quotes, or a backslash — then parameter,
+// command and arithmetic expansion are NOT performed on the lines of the
+// here-document. If `word` is entirely unquoted, the body is expanded
+// (treated like a double-quoted string).
+//
+// The lexer encodes that distinction in the `quoted: bool` field on the
+// `HereDoc`/`HereDocDash` token kinds. The tests below assert that the
+// flag is computed correctly for every form of (un)quoted delimiter.
+// -------------------------------------------------------------------------
+
+fn heredoc_quoted_flag(input: &str) -> bool {
+    let (kind, _) = first_heredoc_token(input);
+    match kind {
+        TokenKind::HereDoc { quoted, .. } | TokenKind::HereDocDash { quoted, .. } => quoted,
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_heredoc_body_expanded_for_unquoted_delimiter() {
+    // echo <<EOF -> body is expanded, so quoted == false.
+    assert!(!heredoc_quoted_flag("echo <<EOF\n$x\nEOF\n"));
+}
+
+#[test]
+fn test_heredoc_body_not_expanded_for_single_quoted_delimiter() {
+    // echo <<'EOF' -> body is NOT expanded, so quoted == true.
+    assert!(heredoc_quoted_flag("echo <<'EOF'\n$x\nEOF\n"));
+}
+
+#[test]
+fn test_heredoc_body_not_expanded_for_double_quoted_delimiter() {
+    // echo <<"EOF" -> body is NOT expanded, so quoted == true.
+    assert!(heredoc_quoted_flag("echo <<\"EOF\"\n$x\nEOF\n"));
+}
+
+#[test]
+fn test_heredoc_body_not_expanded_for_backslash_escaped_delimiter() {
+    // echo <<\EOF -> body is NOT expanded, so quoted == true.
+    assert!(heredoc_quoted_flag("echo <<\\EOF\n$x\nEOF\n"));
+}
+
+#[test]
+fn test_heredoc_body_not_expanded_for_partially_quoted_delimiter() {
+    // echo <<EO'F' -> any quoting suppresses expansion, so quoted == true.
+    assert!(heredoc_quoted_flag("echo <<EO'F'\n$x\nEOF\n"));
+}
+
+#[test]
+fn test_heredoc_dash_body_expanded_for_unquoted_delimiter() {
+    // echo <<-EOF -> body is expanded, so quoted == false.
+    assert!(!heredoc_quoted_flag("echo <<-EOF\n\t$x\n\tEOF\n"));
+}
+
+#[test]
+fn test_heredoc_dash_body_not_expanded_for_single_quoted_delimiter() {
+    // echo <<-'EOF' -> body is NOT expanded, so quoted == true.
+    assert!(heredoc_quoted_flag("echo <<-'EOF'\n\t$x\n\tEOF\n"));
+}
+
+#[test]
+fn test_heredoc_dash_body_not_expanded_for_double_quoted_delimiter() {
+    // echo <<-"EOF" -> body is NOT expanded, so quoted == true.
+    assert!(heredoc_quoted_flag("echo <<-\"EOF\"\n\t$x\n\tEOF\n"));
+}
+
+// -------------------------------------------------------------------------
+// Verbatim reconstruction: chaining all token values together must yield
+// the original input. This is the property that motivates `Token.value`
+// being the verbatim slice of the underlying buffer (including for
+// here-doc delimiter tokens, which previously dropped quote characters).
+// -------------------------------------------------------------------------
+
+fn collect_token_values(input: &str) -> String {
+    let mut lexer = Lexer::new(input);
+    let mut out = String::new();
+    loop {
+        let token = lexer.next_token();
+        if matches!(token.kind, TokenKind::EOF) {
+            break;
+        }
+        out.push_str(&token.value);
+    }
+    out
+}
+
+#[test]
+fn test_heredoc_token_values_reconstruct_input_unquoted() {
+    let input = "cat <<EOF\nbody\nEOF\n";
+    // Stop the reconstruction check at the heredoc delimiter token; the
+    // body itself is consumed by the parser, not the lexer, so we only
+    // check the prefix containing the operator.
+    let prefix = "cat <<EOF";
+    assert!(collect_token_values(input).starts_with(prefix));
+}
+
+#[test]
+fn test_heredoc_token_values_reconstruct_input_single_quoted() {
+    let input = "cat <<'EOF'\nbody\nEOF\n";
+    let prefix = "cat <<'EOF'";
+    assert!(collect_token_values(input).starts_with(prefix));
+}
+
+#[test]
+fn test_heredoc_token_values_reconstruct_input_dash_double_quoted() {
+    let input = "cat <<-\"EOF\"\n\tbody\n\tEOF\n";
+    let prefix = "cat <<-\"EOF\"";
+    assert!(collect_token_values(input).starts_with(prefix));
 }

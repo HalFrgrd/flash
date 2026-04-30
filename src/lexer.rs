@@ -40,10 +40,15 @@ pub enum TokenKind {
     ParamExpansionOp(String), // :-, :=, :?, :+, #, ##, %, %%
     ProcessSubstIn,           // <(
     ProcessSubstOut,          // >(
-    HereDoc(String),          // << followed by delimiter
-    HereDocDash(String),      // <<- followed by delimiter
-    HereDocContent(String),   // Content of here-document
-    HereString,               // <<<
+    HereDoc {
+        delimiter: String,
+        quoted: bool,
+    }, // << followed by delimiter; `delimiter` is the unquoted word; `quoted` is true if any part of the original word was quoted (which suppresses body expansion)
+    HereDocDash {
+        delimiter: String,
+        quoted: bool,
+    }, // <<- variant of HereDoc
+    HereString, // <<<
     ExtGlob(char),            // For ?(, *(, +(, @(, !(
     // Shell control flow keywords
     If,   // if keyword
@@ -635,34 +640,42 @@ impl Lexer {
                     } else if self.peek_char() == '-' {
                         // Here document with dash <<-
                         self.read_char(); // Consume '-'
-                        self.read_char(); // Move to next char
+                        self.read_char(); // Move to next char after '<<-'
 
-                        // Skip whitespace before delimiter
+                        let mut raw = String::from("<<-");
+
+                        // Capture any whitespace before delimiter so the
+                        // token value remains a verbatim slice of input.
                         while self.ch.is_whitespace() && self.ch != '\n' {
+                            raw.push(self.ch);
                             self.read_char();
                         }
 
                         // Read delimiter
-                        let delimiter = self.read_heredoc_delimiter();
+                        let (delimiter, quoted) = self.read_heredoc_delimiter(&mut raw);
                         Token {
-                            kind: TokenKind::HereDocDash(delimiter.clone()),
-                            value: format!("<<-{}", delimiter),
+                            kind: TokenKind::HereDocDash { delimiter, quoted },
+                            value: raw,
                             position: current_position,
                         }
                     } else {
                         // Regular here document <<
-                        self.read_char(); // Move to next char
+                        self.read_char(); // Move to next char after '<<'
 
-                        // Skip whitespace before delimiter
+                        let mut raw = String::from("<<");
+
+                        // Capture any whitespace before delimiter so the
+                        // token value remains a verbatim slice of input.
                         while self.ch.is_whitespace() && self.ch != '\n' {
+                            raw.push(self.ch);
                             self.read_char();
                         }
 
                         // Read delimiter
-                        let delimiter = self.read_heredoc_delimiter();
+                        let (delimiter, quoted) = self.read_heredoc_delimiter(&mut raw);
                         Token {
-                            kind: TokenKind::HereDoc(delimiter.clone()),
-                            value: format!("<<{}", delimiter),
+                            kind: TokenKind::HereDoc { delimiter, quoted },
+                            value: raw,
                             position: current_position,
                         }
                     }
@@ -1855,27 +1868,36 @@ impl Lexer {
         tokens
     }
 
-    fn read_heredoc_delimiter(&mut self) -> String {
+    /// Read a heredoc delimiter "word" starting at `self.ch`.
+    ///
+    /// Returns `(delimiter, quoted)` where `delimiter` is the value of the
+    /// word after quote removal (used for line matching) and `quoted` is
+    /// `true` if any part of the original word was quoted (with single
+    /// quotes, double quotes or a backslash escape). Per the bash spec, a
+    /// quoted delimiter suppresses parameter, command and arithmetic
+    /// expansion in the here-document body.
+    ///
+    /// The verbatim characters consumed (including any quote characters
+    /// and backslashes) are appended to `raw` so that the caller can
+    /// reconstruct the exact slice of source text covered by the token.
+    fn read_heredoc_delimiter(&mut self, raw: &mut String) -> (String, bool) {
         let mut delimiter = String::new();
+        let mut quoted = false;
 
-        // Read the heredoc word. Per the bash specification, the actual
-        // delimiter is the result of "quote removal" on the word. So we
-        // strip surrounding/embedded single quotes, double quotes and
-        // backslash escapes here. The fact that the word was quoted (which
-        // suppresses parameter, command and arithmetic expansion in the
-        // here-document body) is currently encoded only in the source text
-        // of the token; the delimiter string returned here always reflects
-        // the post-quote-removal value used for line matching.
         while !self.ch.is_whitespace() && self.ch != '\0' {
             match self.ch {
                 '\'' => {
                     // Single-quoted segment: literal until matching '
+                    quoted = true;
+                    raw.push(self.ch);
                     self.read_char();
                     while self.ch != '\'' && self.ch != '\0' && self.ch != '\n' {
                         delimiter.push(self.ch);
+                        raw.push(self.ch);
                         self.read_char();
                     }
                     if self.ch == '\'' {
+                        raw.push(self.ch);
                         self.read_char();
                     } else {
                         break;
@@ -1883,21 +1905,27 @@ impl Lexer {
                 }
                 '"' => {
                     // Double-quoted segment: backslash escapes ", \, $, `
+                    quoted = true;
+                    raw.push(self.ch);
                     self.read_char();
                     while self.ch != '"' && self.ch != '\0' && self.ch != '\n' {
                         if self.ch == '\\' {
                             let next = self.peek_char();
                             if next == '"' || next == '\\' || next == '$' || next == '`' {
+                                raw.push(self.ch);
                                 self.read_char();
                                 delimiter.push(self.ch);
+                                raw.push(self.ch);
                                 self.read_char();
                                 continue;
                             }
                         }
                         delimiter.push(self.ch);
+                        raw.push(self.ch);
                         self.read_char();
                     }
                     if self.ch == '"' {
+                        raw.push(self.ch);
                         self.read_char();
                     } else {
                         break;
@@ -1905,20 +1933,25 @@ impl Lexer {
                 }
                 '\\' => {
                     // Backslash escapes the next character (and also marks
-                    // the delimiter as quoted from a body-expansion point of
-                    // view, but that is handled by the parser/interpreter).
+                    // the delimiter as quoted from a body-expansion point
+                    // of view).
                     let next = self.peek_char();
                     if next == '\0' || next == '\n' {
                         delimiter.push('\\');
+                        raw.push('\\');
                         self.read_char();
                     } else {
+                        quoted = true;
+                        raw.push(self.ch);
                         self.read_char();
                         delimiter.push(self.ch);
+                        raw.push(self.ch);
                         self.read_char();
                     }
                 }
                 _ => {
                     delimiter.push(self.ch);
+                    raw.push(self.ch);
                     self.read_char();
                 }
             }
@@ -1932,7 +1965,7 @@ impl Lexer {
             self.column -= 1;
         }
 
-        delimiter
+        (delimiter, quoted)
     }
 
     // Parse here-document content
