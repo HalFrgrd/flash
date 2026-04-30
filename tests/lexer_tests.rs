@@ -1751,3 +1751,292 @@ fn test_heredoc_token_value_preserves_whitespace_between_operator_and_delimiter(
     );
     assert_eq!(value, "<<-\tEOF");
 }
+
+// -------------------------------------------------------------------------
+// Heredoc body lexing depends on whether the delimiter was quoted.
+//
+// Per the bash spec:
+//   * If the delimiter word is unquoted, the lines of the here-document
+//     are treated as if they were inside a double-quoted string, so
+//     parameter, command and arithmetic substitutions are tokenized.
+//   * If any part of the delimiter word is quoted, the lines are treated
+//     as if they were inside a single-quoted string: every character is
+//     literal, and the entire body line is emitted as a single `Word`
+//     token.
+//
+// The helper below collects the tokens that appear between the `Newline`
+// following the heredoc operator and the `Newline` following the
+// delimiter line, so each test can make precise assertions about what
+// the body is lexed into.
+// -------------------------------------------------------------------------
+
+fn collect_body_tokens(input: &str, delim: &str) -> Vec<TokenKind> {
+    let mut lexer = Lexer::new(input);
+    let mut started = false;
+    let mut body = Vec::new();
+    loop {
+        let tok = lexer.next_token();
+        match &tok.kind {
+            TokenKind::EOF => break,
+            TokenKind::HereDoc { .. } | TokenKind::HereDocDash { .. } => {
+                // The next `Newline` marks the start of the body.
+                let nl = lexer.next_token();
+                assert!(matches!(nl.kind, TokenKind::Newline));
+                started = true;
+                continue;
+            }
+            _ if started => {
+                // Stop once we hit the delimiter line. A delimiter is
+                // always lexed as a `Word(delim)` (possibly preceded by
+                // a `\t` whitespace token in the dash variant — drop
+                // any trailing whitespace tokens that we mistook for
+                // body content).
+                if let TokenKind::Word(w) = &tok.kind {
+                    if w == delim {
+                        while matches!(body.last(), Some(TokenKind::Whitespace(_))) {
+                            body.pop();
+                        }
+                        break;
+                    }
+                }
+                body.push(tok.kind.clone());
+            }
+            _ => {}
+        }
+    }
+    body
+}
+
+#[test]
+fn test_unquoted_heredoc_body_lexed_with_arithmetic_expansion() {
+    // `<<EOF` is unquoted, so `$((1+2))` in the body must be tokenized
+    // as an arithmetic substitution (i.e. `ArithSubst` + the inner
+    // expression + two `RParen`s), exactly as it would inside a
+    // double-quoted string.
+    let body = collect_body_tokens("cat <<EOF\necho $((1+2))\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("echo".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::ArithSubst,
+            TokenKind::Word("1+2".to_string()),
+            TokenKind::RParen,
+            TokenKind::RParen,
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_lexed_as_single_word() {
+    // `<<'EOF'` is quoted, so the entire body line must be returned as
+    // one literal `Word` token; no expansion takes place.
+    let body = collect_body_tokens("cat <<'EOF'\necho $((1+2))\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("echo $((1+2))".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_unquoted_heredoc_body_lexed_with_parameter_expansion() {
+    // `$VAR` in an unquoted heredoc body is split into `Dollar` +
+    // `Word("VAR")`, the same way it would be inside a double-quoted
+    // string.
+    let body = collect_body_tokens("cat <<EOF\nhi $VAR\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("hi".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Dollar,
+            TokenKind::Word("VAR".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_keeps_dollar_variable_literal() {
+    // `$VAR` in a single-quoted heredoc body is literal.
+    let body = collect_body_tokens("cat <<'EOF'\nhi $VAR\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("hi $VAR".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_unquoted_heredoc_body_lexed_with_command_substitution() {
+    // `$(date)` in an unquoted heredoc body is tokenized as a command
+    // substitution.
+    let body = collect_body_tokens("cat <<EOF\nhi $(date)\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("hi".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::CmdSubst,
+            TokenKind::Word("date".to_string()),
+            TokenKind::RParen,
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_keeps_command_substitution_literal() {
+    // `$(date)` in a single-quoted heredoc body is literal text.
+    let body = collect_body_tokens("cat <<'EOF'\nhi $(date)\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("hi $(date)".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_unquoted_heredoc_body_lexed_with_braced_param_expansion() {
+    // `${X}` in an unquoted heredoc body is tokenized as a parameter
+    // expansion.
+    let body = collect_body_tokens("cat <<EOF\nv=${X}\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("v".to_string()),
+            TokenKind::Assignment,
+            TokenKind::ParamExpansion,
+            TokenKind::Word("X".to_string()),
+            TokenKind::RBrace,
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_keeps_braced_param_expansion_literal() {
+    let body = collect_body_tokens("cat <<'EOF'\nv=${X}\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("v=${X}".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_with_double_quoted_delimiter_is_literal() {
+    // Double quoting the delimiter (`<<"EOF"`) suppresses expansion in
+    // the body, just like single quoting does.
+    let body = collect_body_tokens("cat <<\"EOF\"\necho $((1+2))\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("echo $((1+2))".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_with_backslash_delimiter_is_literal() {
+    // `<<\EOF` is equivalent to `<<'EOF'` for body-expansion purposes.
+    let body = collect_body_tokens("cat <<\\EOF\nhi $X\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("hi $X".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_partially_quoted_delimiter_is_literal() {
+    // Any quoting in the delimiter word suppresses body expansion; the
+    // post-quote-removal delimiter is `EOF`.
+    let body = collect_body_tokens("cat <<EO'F'\nhi $X\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("hi $X".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_multiple_lines_each_emitted_as_word() {
+    // Each line of a quoted heredoc body is a single `Word`, separated
+    // by `Newline` tokens.
+    let body = collect_body_tokens(
+        "cat <<'EOF'\nline1 $A\nline2 $((1+1))\nEOF\n",
+        "EOF",
+    );
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("line1 $A".to_string()),
+            TokenKind::Newline,
+            TokenKind::Word("line2 $((1+1))".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_body_empty_line_emits_only_newline() {
+    // An empty body line doesn't produce a `Word("")` token; just the
+    // bare `Newline`.
+    let body = collect_body_tokens("cat <<'EOF'\n\nbody $X\nEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Newline,
+            TokenKind::Word("body $X".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_quoted_heredoc_dash_body_is_literal_and_preserves_leading_tabs() {
+    // For `<<-` the leading tab is stripped only when matching the
+    // delimiter line; the body line itself is emitted verbatim (with
+    // its leading tab) as a single `Word`.
+    let body = collect_body_tokens("cat <<-'EOF'\n\thi $X\n\tEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Word("\thi $X".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
+
+#[test]
+fn test_unquoted_heredoc_dash_body_lexes_expansions() {
+    // The dash variant with an unquoted delimiter still expands.
+    let body = collect_body_tokens("cat <<-EOF\n\thi $X\n\tEOF\n", "EOF");
+    assert_eq!(
+        body,
+        vec![
+            TokenKind::Whitespace("\t".to_string()),
+            TokenKind::Word("hi".to_string()),
+            TokenKind::Whitespace(" ".to_string()),
+            TokenKind::Dollar,
+            TokenKind::Word("X".to_string()),
+            TokenKind::Newline,
+        ],
+    );
+}
