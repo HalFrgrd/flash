@@ -376,21 +376,6 @@ impl Lexer {
             self.read_char();
             return token;
         } else if self.in_quotes.is_some() {
-            // A literal newline inside a quoted string must not become part of a
-            // `Word` token. Emit it as a standalone `Newline` token while
-            // remaining in the quoted state so the closing quote is still
-            // recognised on a subsequent line.
-            if self.ch == '\n' {
-                let token = Token {
-                    kind: TokenKind::Newline,
-                    value: "\n".to_string(),
-                    position: current_position,
-                };
-                self.line += 1;
-                self.column = 0;
-                self.read_char();
-                return token;
-            }
             let in_double_quotes = self.in_quotes == Some('"');
             // Inside double quotes, $ and ` retain their special meaning
             if in_double_quotes && self.ch == '$' {
@@ -1671,10 +1656,8 @@ impl Lexer {
         let quote_char = self.in_quotes.unwrap();
         let is_double_quote = quote_char == '"';
 
-        // Keep reading until we hit the closing quote, EOF, or a literal newline.
-        // Newlines inside a quoted string are lexed as separate `Newline` tokens
-        // so that no `Word` token ever contains a newline character.
-        while self.ch != quote_char && self.ch != '\0' && self.ch != '\n' {
+        // Keep reading until we hit the closing quote or EOF
+        while self.ch != quote_char && self.ch != '\0' {
             // In double quotes, backslash escapes $, `, \, and " (preserving both chars)
             if is_double_quote && self.ch == '\\' {
                 let next = self.peek_char();
@@ -1858,74 +1841,13 @@ impl Lexer {
     fn read_heredoc_delimiter(&mut self) -> String {
         let mut delimiter = String::new();
 
-        // Read the heredoc word. Per the bash specification, the actual
-        // delimiter is the result of "quote removal" on the word. So we
-        // strip surrounding/embedded single quotes, double quotes and
-        // backslash escapes here. The fact that the word was quoted (which
-        // suppresses parameter, command and arithmetic expansion in the
-        // here-document body) is currently encoded only in the source text
-        // of the token; the delimiter string returned here always reflects
-        // the post-quote-removal value used for line matching.
+        // Read until whitespace or newline
         while !self.ch.is_whitespace() && self.ch != '\0' {
-            match self.ch {
-                '\'' => {
-                    // Single-quoted segment: literal until matching '
-                    self.read_char();
-                    while self.ch != '\'' && self.ch != '\0' && self.ch != '\n' {
-                        delimiter.push(self.ch);
-                        self.read_char();
-                    }
-                    if self.ch == '\'' {
-                        self.read_char();
-                    } else {
-                        break;
-                    }
-                }
-                '"' => {
-                    // Double-quoted segment: backslash escapes ", \, $, `
-                    self.read_char();
-                    while self.ch != '"' && self.ch != '\0' && self.ch != '\n' {
-                        if self.ch == '\\' {
-                            let next = self.peek_char();
-                            if next == '"' || next == '\\' || next == '$' || next == '`' {
-                                self.read_char();
-                                delimiter.push(self.ch);
-                                self.read_char();
-                                continue;
-                            }
-                        }
-                        delimiter.push(self.ch);
-                        self.read_char();
-                    }
-                    if self.ch == '"' {
-                        self.read_char();
-                    } else {
-                        break;
-                    }
-                }
-                '\\' => {
-                    // Backslash escapes the next character (and also marks
-                    // the delimiter as quoted from a body-expansion point of
-                    // view, but that is handled by the parser/interpreter).
-                    let next = self.peek_char();
-                    if next == '\0' || next == '\n' {
-                        delimiter.push('\\');
-                        self.read_char();
-                    } else {
-                        self.read_char();
-                        delimiter.push(self.ch);
-                        self.read_char();
-                    }
-                }
-                _ => {
-                    delimiter.push(self.ch);
-                    self.read_char();
-                }
-            }
+            delimiter.push(self.ch);
+            self.read_char();
         }
 
-        // Step back one character so the outer `next_token` loop can
-        // re-process the terminator (whitespace / newline / EOF).
+        // Step back one character
         if self.position > 0 {
             self.position -= 1;
             self.read_position -= 1;
@@ -3414,18 +3336,11 @@ mod lexer_tests {
 
     #[test]
     fn test_multiline_strings() {
-        // A literal newline inside a quoted string must not appear inside any
-        // `Word` token. The lexer emits a fresh `Word` for each line and a
-        // `Newline` token in between, while remaining in the quoted state.
         let input = "echo \"line1\nline2\nline3\"";
         let expected = vec![
             TokenKind::Word("echo".to_string()),
             TokenKind::Quote,
-            TokenKind::Word("line1".to_string()),
-            TokenKind::Newline,
-            TokenKind::Word("line2".to_string()),
-            TokenKind::Newline,
-            TokenKind::Word("line3".to_string()),
+            TokenKind::Word("line1\nline2\nline3".to_string()),
             TokenKind::Quote,
         ];
         test_tokens(input, expected);
