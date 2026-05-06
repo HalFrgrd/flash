@@ -1770,7 +1770,7 @@ impl Parser {
 
                     args.push(pattern_str);
                 }
-                TokenKind::Less | TokenKind::Great | TokenKind::DGreat => {
+                TokenKind::Less | TokenKind::Great | TokenKind::DGreat | TokenKind::GreatAnd => {
                     let redirect = self.parse_redirect();
                     redirects.push(redirect);
                 }
@@ -2349,8 +2349,16 @@ impl Parser {
             TokenKind::Less => RedirectKind::Input,
             TokenKind::Great => RedirectKind::Output,
             TokenKind::DGreat => RedirectKind::Append,
+            TokenKind::GreatAnd => RedirectKind::OutputDup,
             _ => panic!("Expected a redirection token"),
         };
+
+        // For GreatAnd the target fd/file is embedded in the token value (e.g. ">&1" → "1")
+        if kind == RedirectKind::OutputDup {
+            let file = self.current_token.value.trim_start_matches(">&").to_string();
+            self.next_token(); // Skip the GreatAnd token
+            return Redirect { kind, file };
+        }
 
         self.next_token(); // Skip the redirection operator
 

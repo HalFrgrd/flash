@@ -631,9 +631,7 @@ fn test_lexer_complex_redirection() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::Word("2".to_string()));
-    assert_eq!(lexer.next_token().kind, TokenKind::Great);
-    assert_eq!(lexer.next_token().kind, TokenKind::Background);
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("1".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::GreatAnd);
     assert_eq!(
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
@@ -656,6 +654,64 @@ fn test_lexer_complex_redirection() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::Word("log".to_string()));
+}
+
+#[test]
+fn test_fd_redirect_2_great_and_1() {
+    // 2>&1 should lex as: Word("2"), GreatAnd (value ">&1") — trailing 1 is NOT a separate word
+    let mut lexer = Lexer::new("2>&1");
+
+    let tok = lexer.next_token();
+    assert_eq!(tok.kind, TokenKind::Word("2".to_string()));
+
+    let tok = lexer.next_token();
+    assert_eq!(tok.kind, TokenKind::GreatAnd);
+    assert_eq!(tok.value, ">&1");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_fd_redirect_great_and_value_embedded() {
+    // cmd 2>&1 should produce Word("cmd"), Word("2"), GreatAnd (not Background + Word("1"))
+    let mut lexer = Lexer::new("cmd 2>&1");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("cmd".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("2".to_string()));
+
+    let tok = lexer.next_token();
+    assert_eq!(tok.kind, TokenKind::GreatAnd);
+    assert_eq!(tok.value, ">&1");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_fd_redirect_great_and_no_fd() {
+    // >& without a trailing number (e.g. >& file) should still lex as GreatAnd with value >&
+    let mut lexer = Lexer::new(">&");
+
+    let tok = lexer.next_token();
+    assert_eq!(tok.kind, TokenKind::GreatAnd);
+    assert_eq!(tok.value, ">&");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_fd_redirect_great_and_close() {
+    // >&- closes the file descriptor
+    let mut lexer = Lexer::new(">&-");
+
+    let tok = lexer.next_token();
+    assert_eq!(tok.kind, TokenKind::GreatAnd);
+    assert_eq!(tok.value, ">&-");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
 #[test]

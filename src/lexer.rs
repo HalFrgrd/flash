@@ -28,6 +28,7 @@ pub enum TokenKind {
     Less,                     // <
     Great,                    // >
     DGreat,                   // >>
+    GreatAnd,                 // >& (fd duplication, e.g. 2>&1)
     Dollar,                   // $
     Quote,                    // "
     SingleQuote,              // '
@@ -770,6 +771,25 @@ impl Lexer {
                     Token {
                         kind: TokenKind::DGreat,
                         value: ">>".to_string(),
+                        position: current_position,
+                    }
+                } else if self.peek_char() == '&' {
+                    // Fd duplication: >& followed by optional digits/dash (e.g. >&1, >&-, >&2)
+                    self.read_char(); // Consume '&'
+                    let mut value = ">&".to_string();
+                    // Consume an optional '-' (close fd) or digits (target fd number)
+                    if self.peek_char() == '-' {
+                        self.read_char();
+                        value.push('-');
+                    } else {
+                        while self.peek_char().is_ascii_digit() {
+                            self.read_char();
+                            value.push(self.ch);
+                        }
+                    }
+                    Token {
+                        kind: TokenKind::GreatAnd,
+                        value,
                         position: current_position,
                     }
                 } else if self.peek_char() == '(' {
@@ -2484,9 +2504,7 @@ mod lexer_tests {
             TokenKind::Great,
             TokenKind::Word("output.txt".to_string()),
             TokenKind::Word("2".to_string()),
-            TokenKind::Great,
-            TokenKind::Background,
-            TokenKind::Word("1".to_string()),
+            TokenKind::GreatAnd,
         ];
         test_tokens(input, expected);
     }
@@ -3508,9 +3526,7 @@ mod lexer_tests {
             TokenKind::Great,
             TokenKind::Word("output.txt".to_string()),
             TokenKind::Word("2".to_string()),
-            TokenKind::Great,
-            TokenKind::Background,
-            TokenKind::Word("1".to_string()),
+            TokenKind::GreatAnd,
             TokenKind::DGreat,
             TokenKind::Word("append.log".to_string()),
         ];
