@@ -2353,11 +2353,23 @@ impl Parser {
             _ => panic!("Expected a redirection token"),
         };
 
-        // For GreatAnd the target fd/file is embedded in the token value (e.g. ">&1" → "1")
+        // For GreatAnd the target fd/file may be embedded in the token value (e.g. ">&1" → "1")
+        // or absent (e.g. ">& file") in which case the next token is the target.
         if kind == RedirectKind::OutputDup {
-            let file = self.current_token.value.trim_start_matches(">&").to_string();
-            self.next_token(); // Skip the GreatAnd token
-            return Redirect { kind, file };
+            let embedded = self.current_token.value.trim_start_matches(">&");
+            if embedded.is_empty() {
+                self.next_token(); // Skip the GreatAnd token
+                let file = match &self.current_token.kind {
+                    TokenKind::Word(word) => word.clone(),
+                    _ => String::new(),
+                };
+                self.next_token(); // Skip the filename/fd
+                return Redirect { kind, file };
+            } else {
+                let file = embedded.to_string();
+                self.next_token(); // Skip the GreatAnd token
+                return Redirect { kind, file };
+            }
         }
 
         self.next_token(); // Skip the redirection operator

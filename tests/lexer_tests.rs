@@ -692,7 +692,8 @@ fn test_fd_redirect_great_and_value_embedded() {
 
 #[test]
 fn test_fd_redirect_great_and_no_fd() {
-    // >& without a trailing number (e.g. >& file) should still lex as GreatAnd with value >&
+    // >& without a trailing number should lex as a single GreatAnd token with value >&
+    // (the target file/fd would follow as the next token, e.g. ">& file")
     let mut lexer = Lexer::new(">&");
 
     let tok = lexer.next_token();
