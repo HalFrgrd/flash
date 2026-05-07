@@ -335,6 +335,10 @@ impl Parser {
                 let command_node = self.parse_command();
                 Some(command_node)
             }
+            TokenKind::LBracket => {
+                let command_node = self.parse_command();
+                Some(command_node)
+            }
             TokenKind::If => Some(self.parse_if_statement()),
             TokenKind::Case => Some(self.parse_case_statement()),
             TokenKind::For => Some(self.parse_for_loop()),
@@ -1623,6 +1627,7 @@ impl Parser {
     pub fn parse_command(&mut self) -> Node {
         let name = match &self.current_token.kind {
             TokenKind::Word(word) => word.clone(),
+            TokenKind::LBracket => "[".to_string(),
             _ => String::new(),
         };
 
@@ -1645,6 +1650,19 @@ impl Parser {
                     // and keep it as a single token
                     args.push(word.clone());
                     self.next_token();
+                }
+                TokenKind::LBracket => {
+                    args.push("[".to_string());
+                    self.next_token();
+                }
+                TokenKind::RBracket => {
+                    args.push("]".to_string());
+                    self.next_token();
+                    // `[` is the POSIX test command; once we see its closing `]`,
+                    // finish this command to avoid consuming following separators.
+                    if name == "[" {
+                        break;
+                    }
                 }
                 TokenKind::ArithSubst => {
                     // Handle arithmetic expansion like $((expr))

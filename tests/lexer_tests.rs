@@ -1112,7 +1112,7 @@ fn test_double_rparen_token_kind() {
 
 #[test]
 fn test_bracket_followed_by_single_quote() {
-    // "a ['" should parse as: word, whitespace, word([), singlequote
+    // "a ['" should parse as: word, whitespace, lbracket, singlequote
     let mut lexer = Lexer::new("a ['");
 
     assert_eq!(lexer.next_token().kind, TokenKind::Word("a".to_string()));
@@ -1120,14 +1120,14 @@ fn test_bracket_followed_by_single_quote() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("[".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::LBracket);
     assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
 #[test]
 fn test_bracket_followed_by_double_quote() {
-    // "a [\"" should parse as: word, whitespace, word([), quote
+    // "a [\"" should parse as: word, whitespace, lbracket, quote
     let mut lexer = Lexer::new("a [\"");
 
     assert_eq!(lexer.next_token().kind, TokenKind::Word("a".to_string()));
@@ -1135,8 +1135,22 @@ fn test_bracket_followed_by_double_quote() {
         lexer.next_token().kind,
         TokenKind::Whitespace(" ".to_string())
     );
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("[".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::LBracket);
     assert_eq!(lexer.next_token().kind, TokenKind::Quote);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
+fn test_empty_brackets_are_separate_tokens() {
+    let mut lexer = Lexer::new("echo []");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::LBracket);
+    assert_eq!(lexer.next_token().kind, TokenKind::RBracket);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
