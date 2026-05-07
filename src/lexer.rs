@@ -1948,37 +1948,23 @@ impl Lexer {
     /// Check, without consuming any input, whether the quoted segment
     /// that would be opened by the current character (`self.ch`, which
     /// must be `'` or `"`) has a matching closing quote later in the
-    /// same heredoc-delimiter "word". A quoted segment ends at the
-    /// matching close quote; if none is found before a newline, EOF, or
-    /// (for the bare opener) any other terminator, the segment is
-    /// considered unmatched.
+    /// same heredoc-delimiter "word" (i.e. before the next newline or
+    /// EOF). For double quotes, a backslash escapes the following
+    /// character so it cannot itself close the segment.
     ///
-    /// This is used by `read_heredoc_delimiter` to avoid greedily
-    /// swallowing characters that belong to a separate, unclosed
-    /// quoted-string token following the heredoc operator.
-    fn heredoc_delim_has_matching_close(&self, quote_char: char) -> bool {
-        // Start scanning at the character after the opening quote.
+    /// Used by `read_heredoc_delimiter` to avoid greedily swallowing
+    /// characters that belong to a separate, unclosed quoted-string
+    /// token following the heredoc operator.
+    fn heredoc_delim_has_matching_close(&self, quote: char) -> bool {
         let mut idx = self.read_position;
-        while idx < self.input.len() {
-            let c = self.input[idx];
-            // A newline always terminates the heredoc-delimiter word
-            // (and a quoted segment within it must close before then).
-            if c == '\n' {
-                return false;
+        while let Some(&c) = self.input.get(idx) {
+            match c {
+                '\n' => return false,
+                '\\' if quote == '"' => idx += 2, // escaped char can't close
+                c if c == quote => return true,
+                _ => idx += 1,
             }
-            if quote_char == '"' && c == '\\' {
-                // Inside a double-quoted segment, the next character is
-                // escaped (and therefore cannot itself close the
-                // segment). Skip it.
-                idx += 2;
-                continue;
-            }
-            if c == quote_char {
-                return true;
-            }
-            idx += 1;
         }
-        // Reached end of input without finding the close quote.
         false
     }
 
@@ -1998,89 +1984,52 @@ impl Lexer {
         let mut delimiter = String::new();
         let mut quoted = false;
 
+        // Consume one verbatim char into both `raw` and (optionally) `delimiter`.
+        macro_rules! take {
+            ($lex:expr, $into_delim:expr) => {{
+                if $into_delim {
+                    delimiter.push($lex.ch);
+                }
+                raw.push($lex.ch);
+                $lex.read_char();
+            }};
+        }
+
         while !self.ch.is_whitespace() && self.ch != '\0' {
             match self.ch {
-                '\'' => {
-                    // Single-quoted segment: literal until matching '.
-                    // Robustness: only enter the segment if a matching
-                    // close quote actually exists on the same word
-                    // (i.e. before any newline / EOF). Otherwise leave
-                    // the opening quote for the outer lexer to emit as
-                    // the start of an unclosed single-quoted string.
-                    if !self.heredoc_delim_has_matching_close('\'') {
+                // Quoted segment: only enter if a matching close quote
+                // exists on the same word, otherwise leave the opening
+                // quote for the outer lexer to emit as an unclosed
+                // string. Single quotes are literal; double quotes
+                // honour backslash escapes for ", \, $, `.
+                q @ ('\'' | '"') => {
+                    if !self.heredoc_delim_has_matching_close(q) {
                         break;
                     }
                     quoted = true;
-                    raw.push(self.ch);
-                    self.read_char();
-                    while self.ch != '\'' && self.ch != '\0' && self.ch != '\n' {
-                        delimiter.push(self.ch);
-                        raw.push(self.ch);
-                        self.read_char();
-                    }
-                    if self.ch == '\'' {
-                        raw.push(self.ch);
-                        self.read_char();
-                    } else {
-                        break;
-                    }
-                }
-                '"' => {
-                    // Double-quoted segment: backslash escapes ", \, $, `.
-                    // Robustness: only enter the segment if a matching
-                    // close quote actually exists on the same word.
-                    if !self.heredoc_delim_has_matching_close('"') {
-                        break;
-                    }
-                    quoted = true;
-                    raw.push(self.ch);
-                    self.read_char();
-                    while self.ch != '"' && self.ch != '\0' && self.ch != '\n' {
-                        if self.ch == '\\' {
-                            let next = self.peek_char();
-                            if next == '"' || next == '\\' || next == '$' || next == '`' {
-                                raw.push(self.ch);
-                                self.read_char();
-                                delimiter.push(self.ch);
-                                raw.push(self.ch);
-                                self.read_char();
-                                continue;
-                            }
+                    take!(self, false); // opening quote
+                    while self.ch != q {
+                        if q == '"'
+                            && self.ch == '\\'
+                            && matches!(self.peek_char(), '"' | '\\' | '$' | '`')
+                        {
+                            take!(self, false); // backslash
                         }
-                        delimiter.push(self.ch);
-                        raw.push(self.ch);
-                        self.read_char();
+                        take!(self, true);
                     }
-                    if self.ch == '"' {
-                        raw.push(self.ch);
-                        self.read_char();
-                    } else {
-                        break;
-                    }
+                    take!(self, false); // closing quote (guaranteed by lookahead)
                 }
-                '\\' => {
-                    // Backslash escapes the next character (and also marks
-                    // the delimiter as quoted from a body-expansion point
-                    // of view).
-                    let next = self.peek_char();
-                    if next == '\0' || next == '\n' {
-                        delimiter.push('\\');
-                        raw.push('\\');
-                        self.read_char();
-                    } else {
-                        quoted = true;
-                        raw.push(self.ch);
-                        self.read_char();
-                        delimiter.push(self.ch);
-                        raw.push(self.ch);
-                        self.read_char();
-                    }
+                // Backslash escapes the next character (marks delimiter
+                // as quoted). A trailing backslash before EOF/newline is
+                // taken literally.
+                '\\' if !matches!(self.peek_char(), '\0' | '\n') => {
+                    quoted = true;
+                    take!(self, false); // backslash
+                    take!(self, true); // escaped char
                 }
-                _ => {
-                    delimiter.push(self.ch);
-                    raw.push(self.ch);
-                    self.read_char();
-                }
+                // Bare character (including unmatched quotes and
+                // trailing backslashes) — consumed literally.
+                _ => take!(self, true),
             }
         }
 
