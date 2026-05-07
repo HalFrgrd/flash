@@ -28,6 +28,10 @@ pub enum TokenKind {
     Less,                     // <
     Great,                    // >
     DGreat,                   // >>
+    InputDup,                 // <&
+    OutputDup,                // >&
+    ReadWrite,                // <>
+    Clobber,                  // >|
     Dollar,                   // $
     Quote,                    // "
     SingleQuote,              // '
@@ -702,14 +706,14 @@ impl Lexer {
                 } else if self.peek_char() == '&' {
                     self.read_char();
                     Token {
-                        kind: TokenKind::Word("<&".to_string()),
+                        kind: TokenKind::InputDup,
                         value: "<&".to_string(),
                         position: current_position,
                     }
                 } else if self.peek_char() == '>' {
                     self.read_char();
                     Token {
-                        kind: TokenKind::Word("<>".to_string()),
+                        kind: TokenKind::ReadWrite,
                         value: "<>".to_string(),
                         position: current_position,
                     }
@@ -791,14 +795,14 @@ impl Lexer {
                 } else if self.peek_char() == '&' {
                     self.read_char();
                     Token {
-                        kind: TokenKind::Word(">&".to_string()),
+                        kind: TokenKind::OutputDup,
                         value: ">&".to_string(),
                         position: current_position,
                     }
                 } else if self.peek_char() == '|' {
                     self.read_char();
                     Token {
-                        kind: TokenKind::Word(">|".to_string()),
+                        kind: TokenKind::Clobber,
                         value: ">|".to_string(),
                         position: current_position,
                     }
