@@ -28,6 +28,10 @@ pub enum TokenKind {
     Less,                     // <
     Great,                    // >
     DGreat,                   // >>
+    InputDup,                 // <&
+    OutputDup,                // >&
+    ReadWrite,                // <>
+    Clobber,                  // >|
     Dollar,                   // $
     Quote,                    // "
     SingleQuote,              // '
@@ -699,6 +703,20 @@ impl Lexer {
                         value: "<(".to_string(),
                         position: current_position,
                     }
+                } else if self.peek_char() == '&' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::InputDup,
+                        value: "<&".to_string(),
+                        position: current_position,
+                    }
+                } else if self.peek_char() == '>' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::ReadWrite,
+                        value: "<>".to_string(),
+                        position: current_position,
+                    }
                 } else if self.peek_char() == '<' {
                     // Here document << or <<-
                     self.read_char(); // Consume second '<'
@@ -772,6 +790,20 @@ impl Lexer {
                     Token {
                         kind: TokenKind::DGreat,
                         value: ">>".to_string(),
+                        position: current_position,
+                    }
+                } else if self.peek_char() == '&' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::OutputDup,
+                        value: ">&".to_string(),
+                        position: current_position,
+                    }
+                } else if self.peek_char() == '|' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::Clobber,
+                        value: ">|".to_string(),
                         position: current_position,
                     }
                 } else if self.peek_char() == '(' {
