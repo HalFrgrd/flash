@@ -699,6 +699,20 @@ impl Lexer {
                         value: "<(".to_string(),
                         position: current_position,
                     }
+                } else if self.peek_char() == '&' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::Word("<&".to_string()),
+                        value: "<&".to_string(),
+                        position: current_position,
+                    }
+                } else if self.peek_char() == '>' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::Word("<>".to_string()),
+                        value: "<>".to_string(),
+                        position: current_position,
+                    }
                 } else if self.peek_char() == '<' {
                     // Here document << or <<-
                     self.read_char(); // Consume second '<'
@@ -772,6 +786,20 @@ impl Lexer {
                     Token {
                         kind: TokenKind::DGreat,
                         value: ">>".to_string(),
+                        position: current_position,
+                    }
+                } else if self.peek_char() == '&' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::Word(">&".to_string()),
+                        value: ">&".to_string(),
+                        position: current_position,
+                    }
+                } else if self.peek_char() == '|' {
+                    self.read_char();
+                    Token {
+                        kind: TokenKind::Word(">|".to_string()),
+                        value: ">|".to_string(),
                         position: current_position,
                     }
                 } else if self.peek_char() == '(' {
