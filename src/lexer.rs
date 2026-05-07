@@ -73,6 +73,8 @@ pub enum TokenKind {
     Return,   // return keyword (for functions)
     Export,   // export keyword
     // Bash-specific features
+    LBracket,      // [
+    RBracket,      // ]
     DoubleLBracket, // [[ - extended test command
     DoubleRBracket, // ]] - end extended test
     History,        // ! - history expansion
@@ -867,8 +869,18 @@ impl Lexer {
                         value: "[[".to_string(),
                         position: current_position,
                     }
+                } else if self.peek_char() == ']'
+                    || self.peek_char().is_whitespace()
+                    || is_word_terminator(self.peek_char())
+                    || self.peek_char() == '\0'
+                {
+                    Token {
+                        kind: TokenKind::LBracket,
+                        value: "[".to_string(),
+                        position: current_position,
+                    }
                 } else {
-                    // Single [ is treated as a word (test command)
+                    // Read bracket expressions like [abc] as part of words/globs.
                     self.read_word()
                 }
             }
@@ -882,8 +894,11 @@ impl Lexer {
                         position: current_position,
                     }
                 } else {
-                    // Single ] is treated as a word
-                    self.read_word()
+                    Token {
+                        kind: TokenKind::RBracket,
+                        value: "]".to_string(),
+                        position: current_position,
+                    }
                 }
             }
             '$' => {
@@ -2291,11 +2306,11 @@ mod lexer_tests {
 
         // Peek should be '['
         let peek_token = lexer.peek_next_token();
-        assert_eq!(peek_token.kind, TokenKind::Word("[".to_string()));
+        assert_eq!(peek_token.kind, TokenKind::LBracket);
 
         // Lexer position should still be at the same point
         let bracket_token = next_non_whitespace(&mut lexer);
-        assert_eq!(bracket_token.kind, TokenKind::Word("[".to_string()));
+        assert_eq!(bracket_token.kind, TokenKind::LBracket);
 
         // Let's consume a few more tokens
         next_non_whitespace(&mut lexer); // $
@@ -2737,12 +2752,12 @@ mod lexer_tests {
         let input = "if [ $a -eq 5 ]; then echo equal; else echo not equal; fi";
         let expected = vec![
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("a".to_string()),
             TokenKind::Word("-eq".to_string()),
             TokenKind::Word("5".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Word("echo".to_string()),
@@ -2764,24 +2779,24 @@ mod lexer_tests {
             "if [ $a -eq 1 ]; then echo one; elif [ $a -eq 2 ]; then echo two; else echo other; fi";
         let expected = vec![
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("a".to_string()),
             TokenKind::Word("-eq".to_string()),
             TokenKind::Word("1".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Word("echo".to_string()),
             TokenKind::Word("one".to_string()),
             TokenKind::Semicolon,
             TokenKind::Elif,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("a".to_string()),
             TokenKind::Word("-eq".to_string()),
             TokenKind::Word("2".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Word("echo".to_string()),
@@ -2985,12 +3000,12 @@ mod lexer_tests {
             TokenKind::RParen,
             TokenKind::LBrace,
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("1".to_string()),
             TokenKind::Word("-eq".to_string()),
             TokenKind::Word("0".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Return,
@@ -3106,12 +3121,12 @@ mod lexer_tests {
             TokenKind::Semicolon,
             TokenKind::Do,
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("i".to_string()),
             TokenKind::Word("-eq".to_string()),
             TokenKind::Word("2".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Break,
@@ -3136,12 +3151,12 @@ mod lexer_tests {
             TokenKind::Semicolon,
             TokenKind::Do,
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("i".to_string()),
             TokenKind::Word("-eq".to_string()),
             TokenKind::Word("2".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Continue,
@@ -3218,12 +3233,12 @@ mod lexer_tests {
         let input = "while [ $i -lt 10 ]; do echo $i; i=$((i+1)); done";
         let expected = vec![
             TokenKind::While,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("i".to_string()),
             TokenKind::Word("-lt".to_string()),
             TokenKind::Word("10".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Do,
             TokenKind::Word("echo".to_string()),
@@ -3255,12 +3270,12 @@ mod lexer_tests {
             TokenKind::Word("looping".to_string()),
             TokenKind::Newline,
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("count".to_string()),
             TokenKind::Word("-gt".to_string()),
             TokenKind::Word("10".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Break,
@@ -3392,12 +3407,12 @@ mod lexer_tests {
         let input = "until [ $count -eq 10 ]; do echo $count; count=$((count+1)); done";
         let expected = vec![
             TokenKind::Until,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Dollar,
             TokenKind::Word("count".to_string()),
             TokenKind::Word("-eq".to_string()),
             TokenKind::Word("10".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Do,
             TokenKind::Word("echo".to_string()),
@@ -3664,10 +3679,10 @@ mod lexer_tests {
             TokenKind::RParen,
             TokenKind::LBrace,
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Word("-f".to_string()),
             TokenKind::Word("Dockerfile".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Word("docker".to_string()),
@@ -3963,10 +3978,10 @@ mod lexer_tests {
         let input = "if [ -f *.txt ]; then echo file*.log | grep test; fi";
         let expected = vec![
             TokenKind::If,
-            TokenKind::Word("[".to_string()),
+            TokenKind::LBracket,
             TokenKind::Word("-f".to_string()),
             TokenKind::Word("*.txt".to_string()),
-            TokenKind::Word("]".to_string()),
+            TokenKind::RBracket,
             TokenKind::Semicolon,
             TokenKind::Then,
             TokenKind::Word("echo".to_string()),
