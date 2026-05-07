@@ -1658,6 +1658,8 @@ impl Parser {
                 TokenKind::RBracket => {
                     args.push("]".to_string());
                     self.next_token();
+                    // `[` is the POSIX test command; once we see its closing `]`,
+                    // finish this command to avoid consuming following separators.
                     if name == "[" {
                         break;
                     }

@@ -869,19 +869,22 @@ impl Lexer {
                         value: "[[".to_string(),
                         position: current_position,
                     }
-                } else if self.peek_char() == ']'
-                    || self.peek_char().is_whitespace()
-                    || is_word_terminator(self.peek_char())
-                    || self.peek_char() == '\0'
-                {
-                    Token {
-                        kind: TokenKind::LBracket,
-                        value: "[".to_string(),
-                        position: current_position,
-                    }
                 } else {
-                    // Read bracket expressions like [abc] as part of words/globs.
-                    self.read_word()
+                    let next = self.peek_char();
+                    if next == ']'
+                        || next.is_whitespace()
+                        || is_word_terminator(next)
+                        || next == '\0'
+                    {
+                        Token {
+                            kind: TokenKind::LBracket,
+                            value: "[".to_string(),
+                            position: current_position,
+                        }
+                    } else {
+                        // Read bracket expressions like [abc] as part of words/globs.
+                        self.read_word()
+                    }
                 }
             }
             ']' => {
