@@ -179,6 +179,8 @@ pub enum RedirectKind {
     HereString,  // <<<
     InputDup,    // <&
     OutputDup,   // >&
+    ReadWrite,   // <>
+    Clobber,     // >|
 }
 
 /// Parser converts tokens into an AST
@@ -1788,7 +1790,13 @@ impl Parser {
 
                     args.push(pattern_str);
                 }
-                TokenKind::Less | TokenKind::Great | TokenKind::DGreat => {
+                TokenKind::Less
+                | TokenKind::Great
+                | TokenKind::DGreat
+                | TokenKind::InputDup
+                | TokenKind::OutputDup
+                | TokenKind::ReadWrite
+                | TokenKind::Clobber => {
                     let redirect = self.parse_redirect();
                     redirects.push(redirect);
                 }
@@ -2367,6 +2375,10 @@ impl Parser {
             TokenKind::Less => RedirectKind::Input,
             TokenKind::Great => RedirectKind::Output,
             TokenKind::DGreat => RedirectKind::Append,
+            TokenKind::InputDup => RedirectKind::InputDup,
+            TokenKind::OutputDup => RedirectKind::OutputDup,
+            TokenKind::ReadWrite => RedirectKind::ReadWrite,
+            TokenKind::Clobber => RedirectKind::Clobber,
             _ => panic!("Expected a redirection token"),
         };
 

@@ -631,8 +631,7 @@ fn test_lexer_complex_redirection() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::Word("2".to_string()));
-    assert_eq!(lexer.next_token().kind, TokenKind::Great);
-    assert_eq!(lexer.next_token().kind, TokenKind::Background);
+    assert_eq!(lexer.next_token().kind, TokenKind::OutputDup);
     assert_eq!(lexer.next_token().kind, TokenKind::Word("1".to_string()));
     assert_eq!(
         lexer.next_token().kind,
@@ -656,6 +655,29 @@ fn test_lexer_complex_redirection() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::Word("log".to_string()));
+}
+
+#[test]
+fn test_lexer_single_token_redirection_operators() {
+    let mut lexer = Lexer::new(">& <& <> >|");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::OutputDup);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::InputDup);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::ReadWrite);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Clobber);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
 #[test]
