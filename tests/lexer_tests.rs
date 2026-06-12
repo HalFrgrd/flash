@@ -315,6 +315,37 @@ fn test_lexer_comments() {
 }
 
 #[test]
+fn test_lexer_hash_not_comment_in_word() {
+    let mut lexer = Lexer::new("echo foo && clear# hi");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("foo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::And);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("clear#".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("hi".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
+}
+
+#[test]
 fn test_lexer_newlines() {
     let mut lexer = Lexer::new("echo\n\nworld");
 

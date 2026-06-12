@@ -173,7 +173,7 @@ fn is_special_char(ch: char) -> bool {
 fn is_word_terminator(ch: char) -> bool {
     matches!(
         ch,
-        '=' | '|' | ';' | '\n' | '&' | '(' | ')' | '<' | '>' | '$' | '"' | '\'' | '`' | '#'
+        '=' | '|' | ';' | '\n' | '&' | '(' | ')' | '<' | '>' | '$' | '"' | '\'' | '`'
     )
 }
 
@@ -1578,9 +1578,8 @@ impl Lexer {
             else if is_word_terminator(self.ch) {
                 break;
             }
-            // Inside ${...}, % and / are operators that terminate the current word.
-            // Note: # is already covered by is_word_terminator() above.
-            else if self.param_expansion_depth > 0 && matches!(self.ch, '%' | '/') {
+            // Inside ${...}, #, % and / are operators that terminate the current word.
+            else if self.param_expansion_depth > 0 && matches!(self.ch, '#' | '%' | '/') {
                 break;
             }
             // Handle brace expansion - check if this looks like a glob pattern
