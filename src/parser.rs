@@ -631,9 +631,7 @@ impl Parser {
 
         let mut quoted_value = String::new();
         while self.current_token.kind != quote_type && self.current_token.kind != TokenKind::EOF {
-            if let TokenKind::Word(word) = &self.current_token.kind {
-                quoted_value.push_str(word);
-            }
+            quoted_value.push_str(&self.current_token.value);
             self.next_token();
         }
 
@@ -962,22 +960,68 @@ impl Parser {
             && self.current_token.kind != TokenKind::Do
             && self.current_token.kind != TokenKind::EOF
         {
-            if let TokenKind::Word(word) = &self.current_token.kind {
-                // Check for brace expansion like {1..10} or {a,b,c}
-                if word.starts_with('{')
-                    && word.ends_with('}')
-                    && (word.contains("..") || word.contains(','))
-                {
-                    if let Some(expanded) = self.expand_brace_pattern(word) {
-                        elements.extend(expanded);
+            match &self.current_token.kind {
+                TokenKind::Word(word) => {
+                    // Check for brace expansion like {1..10} or {a,b,c}
+                    if word.starts_with('{')
+                        && word.ends_with('}')
+                        && (word.contains("..") || word.contains(','))
+                    {
+                        if let Some(expanded) = self.expand_brace_pattern(word) {
+                            elements.extend(expanded);
+                        } else {
+                            elements.push(word.clone());
+                        }
                     } else {
                         elements.push(word.clone());
                     }
-                } else {
-                    elements.push(word.clone());
+                    self.next_token();
+                }
+                TokenKind::LBrace => {
+                    // Group brace content
+                    let mut brace_content = String::new();
+                    brace_content.push('{');
+                    self.next_token(); // Skip the '{'
+
+                    while self.current_token.kind != TokenKind::RBrace
+                        && self.current_token.kind != TokenKind::EOF
+                    {
+                        match &self.current_token.kind {
+                            TokenKind::Word(w) => brace_content.push_str(w),
+                            _ => brace_content.push_str(&self.current_token.value),
+                        }
+                        self.next_token();
+                    }
+
+                    if self.current_token.kind == TokenKind::RBrace {
+                        brace_content.push('}');
+                        self.next_token(); // Skip the '}'
+                    }
+
+                    // Now expand the grouped brace pattern
+                    if let Some(expanded) = self.expand_brace_pattern(&brace_content) {
+                        elements.extend(expanded);
+                    } else {
+                        elements.push(brace_content);
+                    }
+                }
+                TokenKind::Quote => {
+                    let quoted = self.parse_quoted_string(TokenKind::Quote);
+                    if let Node::StringLiteral(s) = quoted {
+                        elements.push(s);
+                    }
+                }
+                TokenKind::SingleQuote => {
+                    let quoted = self.parse_quoted_string(TokenKind::SingleQuote);
+                    if let Node::SingleQuotedString(s) = quoted {
+                        elements.push(s);
+                    }
+                }
+                _ => {
+                    elements.push(self.current_token.value.clone());
+                    self.next_token();
                 }
             }
-            self.next_token();
         }
 
         Node::Array { elements }

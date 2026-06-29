@@ -1529,7 +1529,7 @@ impl Lexer {
 
     fn update_control_flow_state(&mut self, token_kind: &TokenKind) {
         match token_kind {
-            TokenKind::For | TokenKind::While | TokenKind::Until => {
+            TokenKind::For | TokenKind::While | TokenKind::Until | TokenKind::Select => {
                 self.pending_loop_headers += 1;
                 self.last_significant_token = Some(SignificantToken::Other);
             }
@@ -1828,9 +1828,6 @@ impl Lexer {
                     self.read_char();
                     continue;
                 }
-            } else if self.ch == '\\' && self.peek_char() == quote_char {
-                content.push('\\'); // Preserve the backslash
-                self.read_char(); // Move to the quote
             }
 
             // For double-quoted strings, unescaped $ and ` trigger expansions
@@ -2482,8 +2479,7 @@ mod lexer_tests {
             TokenKind::Great,
             TokenKind::Word("output.txt".to_string()),
             TokenKind::Word("2".to_string()),
-            TokenKind::Great,
-            TokenKind::Background,
+            TokenKind::OutputDup,
             TokenKind::Word("1".to_string()),
         ];
         test_tokens(input, expected);
@@ -2670,6 +2666,34 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::SingleQuote,
             TokenKind::Word("$FOO `date` $((1+2))".to_string()),
+            TokenKind::SingleQuote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_single_quotes_backslash() {
+        // Single quotes preserve backslashes literally, including double backslash and trailing backslash
+        let input = r#"printf '\\'"#;
+        let expected = vec![
+            TokenKind::Word("printf".to_string()),
+            TokenKind::SingleQuote,
+            TokenKind::Word("\\\\".to_string()),
+            TokenKind::SingleQuote,
+        ];
+        test_tokens(input, expected);
+    }
+
+    #[test]
+    fn test_single_quotes_escaped_quote_not_escaped() {
+        // In single quotes, backslash has no special meaning, so '\'' starts a quote, has a literal backslash,
+        // and then the second single quote closes the single-quoted section.
+        let input = r#"'foo\'bar'"#;
+        let expected = vec![
+            TokenKind::SingleQuote,
+            TokenKind::Word("foo\\".to_string()),
+            TokenKind::SingleQuote,
+            TokenKind::Word("bar".to_string()),
             TokenKind::SingleQuote,
         ];
         test_tokens(input, expected);
@@ -3506,8 +3530,7 @@ mod lexer_tests {
             TokenKind::Great,
             TokenKind::Word("output.txt".to_string()),
             TokenKind::Word("2".to_string()),
-            TokenKind::Great,
-            TokenKind::Background,
+            TokenKind::OutputDup,
             TokenKind::Word("1".to_string()),
             TokenKind::DGreat,
             TokenKind::Word("append.log".to_string()),

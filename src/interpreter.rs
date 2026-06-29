@@ -603,6 +603,18 @@ impl DefaultEvaluator {
                             // File descriptor duplication - simplified implementation
                             eprintln!("File descriptor duplication not fully implemented");
                         }
+                        RedirectKind::Clobber => {
+                            let file = fs::File::create(&redirect.file)?;
+                            command.stdout(Stdio::from(file));
+                        }
+                        RedirectKind::ReadWrite => {
+                            let file = fs::OpenOptions::new()
+                                .read(true)
+                                .write(true)
+                                .create(true)
+                                .open(&redirect.file)?;
+                            command.stdin(Stdio::from(file));
+                        }
                     }
                 }
 

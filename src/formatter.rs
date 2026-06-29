@@ -276,6 +276,8 @@ impl Formatter {
                         RedirectKind::HereString => "<<<",
                         RedirectKind::InputDup => "<&",
                         RedirectKind::OutputDup => ">&",
+                        RedirectKind::ReadWrite => "<>",
+                        RedirectKind::Clobber => ">|",
                     };
 
                     if self.config.space_redirects {

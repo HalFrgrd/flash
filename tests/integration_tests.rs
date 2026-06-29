@@ -86,9 +86,11 @@ fn test_script_file_execution_with_positional_args() {
 #[test]
 fn test_piped_input_with_positional_args() {
     // Test piped input with positional arguments using echo
+    let binary_path = get_flash_binary_path();
+    let binary_str = binary_path.to_str().unwrap();
     let output = Command::new("sh")
         .arg("-c")
-        .arg("echo 'echo \"Piped: $1, $2, $3, Count: $#\"' | cargo run --release -- arg1 arg2 arg3")
+        .arg(format!("echo 'echo \"Piped: $1, $2, $3, Count: $#\"' | {} arg1 arg2 arg3", binary_str))
         .output()
         .expect("Failed to execute test");
 
