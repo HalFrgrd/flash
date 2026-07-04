@@ -737,7 +737,10 @@ fn test_lexer_glob_patterns() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::LBrace);
-    assert_eq!(lexer.next_token().kind, TokenKind::Word("1,2,3".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("1,2,3".to_string())
+    );
     assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
 }
 #[test]
@@ -810,6 +813,38 @@ fn test_nested_arithmetic_tokens() {
             break;
         }
     }
+}
+
+#[test]
+fn test_lexer_arithmetic_nested_parentheses() {
+    let mut lexer = Lexer::new("$(( ((2) + 2) ))");
+    assert_eq!(lexer.next_token().kind, TokenKind::ArithSubst);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::LParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::LParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("2".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("+".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("2".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
 #[test]
@@ -1143,10 +1178,7 @@ fn test_single_quote_no_expansion() {
     let mut lexer = Lexer::new(r#"'$FOO'"#);
 
     assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word("$FOO".to_string())
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("$FOO".to_string()));
     assert_eq!(lexer.next_token().kind, TokenKind::SingleQuote);
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
@@ -1367,14 +1399,8 @@ fn test_dollar_env_var_path() {
     let mut lexer = Lexer::new("$HOME/foo");
 
     assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word("HOME".to_string())
-    );
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word("/foo".to_string())
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("HOME".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("/foo".to_string()));
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
@@ -1384,14 +1410,8 @@ fn test_dollar_env_var_dot() {
     let mut lexer = Lexer::new("$HOME.FOO");
 
     assert_eq!(lexer.next_token().kind, TokenKind::Dollar);
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word("HOME".to_string())
-    );
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word(".FOO".to_string())
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("HOME".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word(".FOO".to_string()));
     assert_eq!(lexer.next_token().kind, TokenKind::EOF);
 }
 
@@ -1933,10 +1953,7 @@ fn test_quoted_heredoc_body_keeps_dollar_variable_literal() {
     let body = collect_body_tokens("cat <<'EOF'\nhi $VAR\nEOF\n", "EOF");
     assert_eq!(
         body,
-        vec![
-            TokenKind::Word("hi $VAR".to_string()),
-            TokenKind::Newline,
-        ],
+        vec![TokenKind::Word("hi $VAR".to_string()), TokenKind::Newline,],
     );
 }
 
@@ -1994,10 +2011,7 @@ fn test_quoted_heredoc_body_keeps_braced_param_expansion_literal() {
     let body = collect_body_tokens("cat <<'EOF'\nv=${X}\nEOF\n", "EOF");
     assert_eq!(
         body,
-        vec![
-            TokenKind::Word("v=${X}".to_string()),
-            TokenKind::Newline,
-        ],
+        vec![TokenKind::Word("v=${X}".to_string()), TokenKind::Newline,],
     );
 }
 
@@ -2021,10 +2035,7 @@ fn test_quoted_heredoc_body_with_backslash_delimiter_is_literal() {
     let body = collect_body_tokens("cat <<\\EOF\nhi $X\nEOF\n", "EOF");
     assert_eq!(
         body,
-        vec![
-            TokenKind::Word("hi $X".to_string()),
-            TokenKind::Newline,
-        ],
+        vec![TokenKind::Word("hi $X".to_string()), TokenKind::Newline,],
     );
 }
 
@@ -2035,10 +2046,7 @@ fn test_quoted_heredoc_body_partially_quoted_delimiter_is_literal() {
     let body = collect_body_tokens("cat <<EO'F'\nhi $X\nEOF\n", "EOF");
     assert_eq!(
         body,
-        vec![
-            TokenKind::Word("hi $X".to_string()),
-            TokenKind::Newline,
-        ],
+        vec![TokenKind::Word("hi $X".to_string()), TokenKind::Newline,],
     );
 }
 
@@ -2046,10 +2054,7 @@ fn test_quoted_heredoc_body_partially_quoted_delimiter_is_literal() {
 fn test_quoted_heredoc_body_multiple_lines_each_emitted_as_word() {
     // Each line of a quoted heredoc body is a single `Word`, separated
     // by `Newline` tokens.
-    let body = collect_body_tokens(
-        "cat <<'EOF'\nline1 $A\nline2 $((1+1))\nEOF\n",
-        "EOF",
-    );
+    let body = collect_body_tokens("cat <<'EOF'\nline1 $A\nline2 $((1+1))\nEOF\n", "EOF");
     assert_eq!(
         body,
         vec![
@@ -2084,10 +2089,7 @@ fn test_quoted_heredoc_dash_body_is_literal_and_preserves_leading_tabs() {
     let body = collect_body_tokens("cat <<-'EOF'\n\thi $X\n\tEOF\n", "EOF");
     assert_eq!(
         body,
-        vec![
-            TokenKind::Word("\thi $X".to_string()),
-            TokenKind::Newline,
-        ],
+        vec![TokenKind::Word("\thi $X".to_string()), TokenKind::Newline,],
     );
 }
 

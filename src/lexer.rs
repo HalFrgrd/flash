@@ -12,48 +12,42 @@ use std::ops::Range;
 pub enum TokenKind {
     Word(String),
     Whitespace(String),
-    Assignment,               // =
-    Pipe,                     // |
-    Semicolon,                // ;
-    DoubleSemicolon,          // ;;
-    Newline,                  // \n
-    And,                      // &&
-    Background,               // & (add this new token)
-    Or,                       // ||
-    LParen,                   // (
-    RParen,                   // )
-    DoubleRParen,             // ))
-    LBrace,                   // {
-    RBrace,                   // }
-    Less,                     // <
-    Great,                    // >
-    DGreat,                   // >>
-    InputDup,                 // <&
-    OutputDup,                // >&
-    ReadWrite,                // <>
-    Clobber,                  // >|
-    Dollar,                   // $
-    Quote,                    // "
-    SingleQuote,              // '
-    Backtick,                 // `
-    Comment,                  // #
-    CmdSubst,                 // $(
-    ArithSubst,               // $((
-    ArithCommand,             // ((
-    ParamExpansion,           // ${
-    ParamExpansionOp(String), // :-, :=, :?, :+, #, ##, %, %%
-    ProcessSubstIn,           // <(
-    ProcessSubstOut,          // >(
-    HereDoc {
-        delimiter: String,
-        quoted: bool,
-    }, // << followed by delimiter; `delimiter` is the unquoted word; `quoted` is true if any part of the original word was quoted (which suppresses body expansion)
-    HereDocDash {
-        delimiter: String,
-        quoted: bool,
-    }, // <<- variant of HereDoc
-    HereString, // <<<
-    ExtGlob(char),            // For ?(, *(, +(, @(, !(
+    Assignment,                                      // =
+    Pipe,                                            // |
+    Semicolon,                                       // ;
+    DoubleSemicolon,                                 // ;;
+    Newline,                                         // \n
+    And,                                             // &&
+    Background,                                      // & (add this new token)
+    Or,                                              // ||
+    LParen,                                          // (
+    RParen,                                          // )
+    DoubleRParen,                                    // ))
+    LBrace,                                          // {
+    RBrace,                                          // }
+    Less,                                            // <
+    Great,                                           // >
+    DGreat,                                          // >>
+    InputDup,                                        // <&
+    OutputDup,                                       // >&
+    ReadWrite,                                       // <>
+    Clobber,                                         // >|
+    Dollar,                                          // $
+    Quote,                                           // "
+    SingleQuote,                                     // '
+    Backtick,                                        // `
+    Comment,                                         // #
+    CmdSubst,                                        // $(
+    ArithSubst,                                      // $((
+    ArithCommand,                                    // ((
+    ParamExpansion,                                  // ${
+    ParamExpansionOp(String),                        // :-, :=, :?, :+, #, ##, %, %%
+    ProcessSubstIn,                                  // <(
+    ProcessSubstOut,                                 // >(
+    HereDoc { delimiter: String, quoted: bool }, // << followed by delimiter; `delimiter` is the unquoted word; `quoted` is true if any part of the original word was quoted (which suppresses body expansion)
+    HereDocDash { delimiter: String, quoted: bool }, // <<- variant of HereDoc
+    HereString,                                  // <<<
+    ExtGlob(char),                               // For ?(, *(, +(, @(, !(
     // Shell control flow keywords
     If,   // if keyword
     Then, // then keyword
@@ -77,8 +71,8 @@ pub enum TokenKind {
     Return,   // return keyword (for functions)
     Export,   // export keyword
     // Bash-specific features
-    LBracket,      // [
-    RBracket,      // ]
+    LBracket,       // [
+    RBracket,       // ]
     DoubleLBracket, // [[ - extended test command
     DoubleRBracket, // ]] - end extended test
     History,        // ! - history expansion
@@ -207,6 +201,8 @@ pub struct Lexer {
     /// whether leading TABs are stripped before matching the delimiter
     /// line.
     in_quoted_heredoc_body: Option<(String, bool)>,
+    arithmetic_depth: usize,
+    paren_depth_in_arithmetic: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -238,6 +234,8 @@ impl Lexer {
             last_significant_token: None,
             pending_quoted_heredoc: None,
             in_quoted_heredoc_body: None,
+            arithmetic_depth: 0,
+            paren_depth_in_arithmetic: 0,
         };
         lexer.read_char();
         lexer
@@ -478,6 +476,8 @@ impl Lexer {
                         self.read_char(); // Consume first '('
                         self.read_char(); // Consume second '('
                         self.read_char(); // Advance to first char inside $((
+                        self.arithmetic_depth += 1;
+                        self.paren_depth_in_arithmetic += 2;
                         return Token {
                             kind: TokenKind::ArithSubst,
                             value: "$((".to_string(),
@@ -639,14 +639,19 @@ impl Lexer {
             }
             '(' => {
                 // Check for arithmetic command (( syntax
-                if self.peek_char() == '(' {
+                if self.peek_char() == '(' && self.arithmetic_depth == 0 {
                     self.read_char(); // Consume second '('
+                    self.arithmetic_depth += 1;
+                    self.paren_depth_in_arithmetic += 2;
                     Token {
                         kind: TokenKind::ArithCommand,
                         value: "((".to_string(),
                         position: current_position,
                     }
                 } else {
+                    if self.arithmetic_depth > 0 {
+                        self.paren_depth_in_arithmetic += 1;
+                    }
                     Token {
                         kind: TokenKind::LParen,
                         value: "(".to_string(),
@@ -667,19 +672,23 @@ impl Lexer {
                         self.quote_after_cmdsubst_depth = 0;
                     }
                 }
+                if self.arithmetic_depth > 0 {
+                    self.paren_depth_in_arithmetic -= 1;
+                    if self.paren_depth_in_arithmetic == 0 {
+                        self.arithmetic_depth -= 1;
+                    }
+                }
                 Token {
                     kind: TokenKind::RParen,
                     value: ")".to_string(),
                     position: current_position,
                 }
             }
-            '{' => {
-                Token {
-                    kind: TokenKind::LBrace,
-                    value: "{".to_string(),
-                    position: current_position,
-                }
-            }
+            '{' => Token {
+                kind: TokenKind::LBrace,
+                value: "{".to_string(),
+                position: current_position,
+            },
             '}' => {
                 if let Some(quote_char) = self.quote_after_param_expansion {
                     self.in_quotes = Some(quote_char);
@@ -947,6 +956,8 @@ impl Lexer {
                         }
                         self.read_char(); // Consume first '('
                         self.read_char(); // Consume second '('
+                        self.arithmetic_depth += 1;
+                        self.paren_depth_in_arithmetic += 2;
                         Token {
                             kind: TokenKind::ArithSubst,
                             value: "$((".to_string(),

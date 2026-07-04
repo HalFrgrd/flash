@@ -4299,7 +4299,7 @@ impl Interpreter {
 }
 
 #[cfg(test)]
-#[cfg(any())]  // This disables all tests in this module
+#[cfg(any())] // This disables all tests in this module
 mod tests {
     use super::*;
     use std::env;

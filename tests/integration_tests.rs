@@ -90,7 +90,10 @@ fn test_piped_input_with_positional_args() {
     let binary_str = binary_path.to_str().unwrap();
     let output = Command::new("sh")
         .arg("-c")
-        .arg(format!("echo 'echo \"Piped: $1, $2, $3, Count: $#\"' | {} arg1 arg2 arg3", binary_str))
+        .arg(format!(
+            "echo 'echo \"Piped: $1, $2, $3, Count: $#\"' | {} arg1 arg2 arg3",
+            binary_str
+        ))
         .output()
         .expect("Failed to execute test");
 
