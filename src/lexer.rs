@@ -167,7 +167,7 @@ fn is_special_char(ch: char) -> bool {
 fn is_word_terminator(ch: char) -> bool {
     matches!(
         ch,
-        '=' | '|' | ';' | '\n' | '&' | '(' | ')' | '<' | '>' | '$' | '"' | '\'' | '`'
+        '=' | '|' | ';' | '\n' | '&' | '(' | ')' | '<' | '>' | '$' | '"' | '\'' | '`' | '[' | ']'
     )
 }
 
@@ -911,20 +911,10 @@ impl Lexer {
                         position: current_position,
                     }
                 } else {
-                    let next = self.peek_char();
-                    if next == ']'
-                        || next.is_whitespace()
-                        || is_word_terminator(next)
-                        || next == '\0'
-                    {
-                        Token {
-                            kind: TokenKind::LBracket,
-                            value: "[".to_string(),
-                            position: current_position,
-                        }
-                    } else {
-                        // Read bracket expressions like [abc] as part of words/globs.
-                        self.read_word()
+                    Token {
+                        kind: TokenKind::LBracket,
+                        value: "[".to_string(),
+                        position: current_position,
                     }
                 }
             }
@@ -1615,35 +1605,6 @@ impl Lexer {
             // Handle standalone } - this should terminate the word
             else if self.ch == '}' {
                 break;
-            }
-            // Handle character classes
-            else if self.ch == '[' {
-                if !self.has_character_class_closing_bracket() {
-                    word.push(self.ch);
-                    self.read_char();
-                    continue;
-                }
-
-                word.push(self.ch);
-                self.read_char();
-
-                // Handle negation at start of character class
-                if self.ch == '!' || self.ch == '^' {
-                    word.push(self.ch);
-                    self.read_char();
-                }
-
-                // Read until closing bracket
-                while self.ch != ']' && self.ch != '\0' && !self.ch.is_whitespace() {
-                    word.push(self.ch);
-                    self.read_char();
-                }
-
-                // Include the closing bracket
-                if self.ch == ']' {
-                    word.push(self.ch);
-                    self.read_char();
-                }
             }
             // Handle escape sequences
             else if self.ch == '\\' {
@@ -2945,7 +2906,10 @@ mod lexer_tests {
             TokenKind::Word("ls".to_string()),
             TokenKind::Word("*.txt".to_string()),
             TokenKind::Word("file?.log".to_string()),
-            TokenKind::Word("[abc]*.tmp".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("abc".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word("*.tmp".to_string()),
         ];
         test_tokens(input, expected);
     }
@@ -3649,14 +3613,23 @@ mod lexer_tests {
         let expected = vec![
             TokenKind::Word("echo".to_string()),
             TokenKind::ParamExpansion,
-            TokenKind::Word("array[0]".to_string()),
+            TokenKind::Word("array".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("0".to_string()),
+            TokenKind::RBracket,
             TokenKind::RBrace,
             TokenKind::ParamExpansion,
-            TokenKind::Word("array[@]".to_string()),
+            TokenKind::Word("array".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("@".to_string()),
+            TokenKind::RBracket,
             TokenKind::RBrace,
             TokenKind::ParamExpansion,
             TokenKind::Word("#".to_string()),
-            TokenKind::Word("array[@]".to_string()),
+            TokenKind::Word("array".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("@".to_string()),
+            TokenKind::RBracket,
             TokenKind::RBrace,
         ];
         test_tokens(input, expected);
@@ -3955,15 +3928,28 @@ mod lexer_tests {
 
     #[test]
     fn test_comprehensive_glob_patterns() {
-        // Test various glob patterns to ensure they're tokenized as words
+        // Test various glob patterns to ensure brackets are tokenized cleanly
         let input = "ls *.txt file?.log [0-9]*.dat [a-z][A-Z]*.tmp [!abc]*.bak";
         let expected = vec![
             TokenKind::Word("ls".to_string()),
             TokenKind::Word("*.txt".to_string()),
             TokenKind::Word("file?.log".to_string()),
-            TokenKind::Word("[0-9]*.dat".to_string()),
-            TokenKind::Word("[a-z][A-Z]*.tmp".to_string()),
-            TokenKind::Word("[!abc]*.bak".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("0-9".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word("*.dat".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("a-z".to_string()),
+            TokenKind::RBracket,
+            TokenKind::LBracket,
+            TokenKind::Word("A-Z".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word("*.tmp".to_string()),
+            TokenKind::LBracket,
+            TokenKind::History,
+            TokenKind::Word("abc".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word("*.bak".to_string()),
         ];
         test_tokens(input, expected);
     }
@@ -3976,14 +3962,18 @@ mod lexer_tests {
             TokenKind::Word("find".to_string()),
             TokenKind::Word("/path/*.txt".to_string()),
             TokenKind::Word("./local/file?.log".to_string()),
-            TokenKind::Word("../parent/[abc]*.tmp".to_string()),
+            TokenKind::Word("../parent/".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("abc".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word("*.tmp".to_string()),
         ];
         test_tokens(input, expected);
     }
 
     #[test]
     fn test_glob_patterns_in_quotes() {
-        // Test that glob patterns in quotes are preserved as literals
+        // Test that glob patterns in quotes are preserved as literals inside quotes
         let input = r#"echo "*.txt" 'file?.log' "test[abc].dat""#;
         let expected = vec![
             TokenKind::Word("echo".to_string()),
@@ -4006,10 +3996,24 @@ mod lexer_tests {
         let input = "command *.[ch] *.{txt,log} file[0-9][a-z].* test*[!~]";
         let expected = vec![
             TokenKind::Word("command".to_string()),
-            TokenKind::Word("*.[ch]".to_string()),
+            TokenKind::Word("*.".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("ch".to_string()),
+            TokenKind::RBracket,
             TokenKind::Word("*.{txt,log}".to_string()),
-            TokenKind::Word("file[0-9][a-z].*".to_string()),
-            TokenKind::Word("test*[!~]".to_string()),
+            TokenKind::Word("file".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("0-9".to_string()),
+            TokenKind::RBracket,
+            TokenKind::LBracket,
+            TokenKind::Word("a-z".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word(".*".to_string()),
+            TokenKind::Word("test*".to_string()),
+            TokenKind::LBracket,
+            TokenKind::History,
+            TokenKind::Word("~".to_string()),
+            TokenKind::RBracket,
         ];
         test_tokens(input, expected);
     }
@@ -4022,7 +4026,11 @@ mod lexer_tests {
             TokenKind::Word("ls".to_string()),
             TokenKind::Word("*-file.txt".to_string()),
             TokenKind::Word("file_*.log".to_string()),
-            TokenKind::Word("test[._-]*.dat".to_string()),
+            TokenKind::Word("test".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("._-".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word("*.dat".to_string()),
         ];
         test_tokens(input, expected);
     }
@@ -4033,9 +4041,23 @@ mod lexer_tests {
         let input = "ls file[!0-9].txt data[^abc].log test[!~#].dat";
         let expected = vec![
             TokenKind::Word("ls".to_string()),
-            TokenKind::Word("file[!0-9].txt".to_string()),
-            TokenKind::Word("data[^abc].log".to_string()),
-            TokenKind::Word("test[!~#].dat".to_string()),
+            TokenKind::Word("file".to_string()),
+            TokenKind::LBracket,
+            TokenKind::History,
+            TokenKind::Word("0-9".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word(".txt".to_string()),
+            TokenKind::Word("data".to_string()),
+            TokenKind::LBracket,
+            TokenKind::Word("^abc".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word(".log".to_string()),
+            TokenKind::Word("test".to_string()),
+            TokenKind::LBracket,
+            TokenKind::History,
+            TokenKind::Word("~#".to_string()),
+            TokenKind::RBracket,
+            TokenKind::Word(".dat".to_string()),
         ];
         test_tokens(input, expected);
     }
