@@ -557,7 +557,7 @@ impl Lexer {
             let op = self.ch;
             let token = Token {
                 kind: TokenKind::ExtGlob(op),
-                value: op.to_string(),
+                value: format!("{}(", op),
                 position: current_position,
             };
             self.in_extglob = true;
@@ -2934,6 +2934,27 @@ mod lexer_tests {
             TokenKind::Word(".dat".to_string()),
         ];
         test_tokens(input, expected);
+        test_round_trip(input);
+    }
+
+    #[test]
+    fn test_extglob_token_value_contains_parenthesis() {
+        let input = "echo !(mnt)";
+        let mut lexer = Lexer::new(input);
+        let extglob_token = std::iter::from_fn(|| {
+            let t = lexer.next_token();
+            if t.kind == TokenKind::EOF {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .find(|t| matches!(t.kind, TokenKind::ExtGlob(_)))
+        .unwrap();
+
+        assert_eq!(extglob_token.kind, TokenKind::ExtGlob('!'));
+        assert_eq!(extglob_token.value, "!(");
+        test_round_trip(input);
     }
 
     #[test]
@@ -3653,6 +3674,7 @@ mod lexer_tests {
             TokenKind::Word("*".to_string()),
         ];
         test_tokens(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -4215,6 +4237,7 @@ mod lexer_tests {
             TokenKind::RParen,
         ];
         test_tokens(input, expected);
+        test_round_trip(input);
     }
 
     #[test]
@@ -4350,5 +4373,6 @@ mod lexer_tests {
             TokenKind::Word("a|b".to_string()),
         ];
         test_tokens_include_whitespace(input, expected);
+        test_round_trip(input);
     }
 }

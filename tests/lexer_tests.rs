@@ -729,10 +729,7 @@ fn test_lexer_glob_patterns() {
         TokenKind::Whitespace(" ".to_string())
     );
     assert_eq!(lexer.next_token().kind, TokenKind::LBracket);
-    assert_eq!(
-        lexer.next_token().kind,
-        TokenKind::Word("abc".to_string())
-    );
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("abc".to_string()));
     assert_eq!(lexer.next_token().kind, TokenKind::RBracket);
     assert_eq!(
         lexer.next_token().kind,
