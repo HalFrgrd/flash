@@ -1542,6 +1542,7 @@ impl Lexer {
             // Check for other word terminators
             else if is_word_terminator(self.ch)
                 || (self.param_expansion_depth > 0 && matches!(self.ch, '#' | '%' | '/'))
+                || (matches!(self.ch, '?' | '*' | '+' | '@' | '!') && self.peek_char() == '(')
             {
                 break;
             }
