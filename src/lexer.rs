@@ -186,6 +186,11 @@ fn is_word_terminator(ch: char) -> bool {
     )
 }
 
+#[inline]
+fn is_extglob_prefix(ch: char, next_ch: char) -> bool {
+    matches!(ch, '?' | '*' | '+' | '@' | '!') && next_ch == '('
+}
+
 /// Lexer that converts input text into tokens
 #[derive(Clone)]
 pub struct Lexer {
@@ -1542,7 +1547,7 @@ impl Lexer {
             // Check for other word terminators
             else if is_word_terminator(self.ch)
                 || (self.param_expansion_depth > 0 && matches!(self.ch, '#' | '%' | '/'))
-                || (matches!(self.ch, '?' | '*' | '+' | '@' | '!') && self.peek_char() == '(')
+                || is_extglob_prefix(self.ch, self.peek_char())
             {
                 break;
             }
