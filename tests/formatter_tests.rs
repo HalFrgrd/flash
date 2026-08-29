@@ -7,7 +7,9 @@
 
 #[cfg(feature = "formatter")]
 use flash::formatter::Formatter;
+#[cfg(feature = "formatter")]
 use flash::lexer::Lexer;
+#[cfg(feature = "formatter")]
 use flash::parser::Parser;
 
 #[cfg(feature = "formatter")]

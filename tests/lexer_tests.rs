@@ -484,6 +484,70 @@ fn test_lexer_extended_glob() {
 }
 
 #[test]
+fn test_lexer_extended_glob_with_pipes() {
+    let mut lexer = Lexer::new("@(foo|bar|baz)");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('@'));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("foo".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Pipe);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("bar".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Pipe);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("baz".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+}
+
+#[test]
+fn test_lexer_nested_extended_globs() {
+    let mut lexer = Lexer::new("@(a|b|!(c|d))");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('@'));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("a".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Pipe);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("b".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Pipe);
+    assert_eq!(lexer.next_token().kind, TokenKind::ExtGlob('!'));
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("c".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::Pipe);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("d".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+    assert_eq!(lexer.next_token().kind, TokenKind::RParen);
+}
+
+#[test]
+fn test_lexer_braces_in_word() {
+    let mut lexer = Lexer::new("echo ./foo/{a,b}");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("./foo/".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::LBrace);
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("a,b".to_string()));
+    assert_eq!(lexer.next_token().kind, TokenKind::RBrace);
+}
+
+#[test]
+fn test_lexer_unclosed_brace_in_word() {
+    let mut lexer = Lexer::new("echo ./foo/{");
+
+    assert_eq!(lexer.next_token().kind, TokenKind::Word("echo".to_string()));
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Whitespace(" ".to_string())
+    );
+    assert_eq!(
+        lexer.next_token().kind,
+        TokenKind::Word("./foo/".to_string())
+    );
+    assert_eq!(lexer.next_token().kind, TokenKind::LBrace);
+}
+
+#[test]
 fn test_lexer_double_semicolon() {
     let mut lexer = Lexer::new("case $var in pattern) echo hello ;; esac");
 
@@ -1877,13 +1941,13 @@ fn collect_body_tokens(input: &str, delim: &str) -> Vec<TokenKind> {
                 // a `\t` whitespace token in the dash variant — drop
                 // any trailing whitespace tokens that we mistook for
                 // body content).
-                if let TokenKind::Word(w) = &tok.kind {
-                    if w == delim {
-                        while matches!(body.last(), Some(TokenKind::Whitespace(_))) {
-                            body.pop();
-                        }
-                        break;
+                if let TokenKind::Word(w) = &tok.kind
+                    && w == delim
+                {
+                    while matches!(body.last(), Some(TokenKind::Whitespace(_))) {
+                        body.pop();
                     }
+                    break;
                 }
                 body.push(tok.kind.clone());
             }
